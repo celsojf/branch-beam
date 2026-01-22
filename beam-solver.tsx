@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 
-// Type definitions
-type UnitSystem = 'metric' | 'imperial';
-type SupportType = 'pin' | 'fixed' | 'none';
-type LoadType = 'point' | 'distributed';
-type CrossSectionType = 'rectangular' | 'custom';
-type MaterialType = 'timber' | 'concrete' | 'steel' | 'aluminum' | 'custom';
-type UnitType = 'length' | 'sectionDim' | 'force' | 'distributed' | 'moment' | 'deflection' | 'inertia' | 'modulus';
-
+// Types
 interface UnitConfig {
   unit: string;
   factor: number;
   step?: number;
 }
 
+interface UnitSystem {
+  length: UnitConfig;
+  sectionDim: UnitConfig;
+  force: UnitConfig;
+  distributed: UnitConfig;
+  moment: UnitConfig;
+  deflection: UnitConfig;
+  inertia: UnitConfig;
+  modulus: UnitConfig;
+}
+
 interface Units {
-  metric: Record<UnitType, UnitConfig>;
-  imperial: Record<UnitType, UnitConfig>;
+  metric: UnitSystem;
+  imperial: UnitSystem;
 }
 
 interface Material {
@@ -25,23 +29,27 @@ interface Material {
   description: string;
 }
 
+interface Materials {
+  [key: string]: Material;
+}
+
 interface Support {
   id: number;
   position: number;
-  type: SupportType;
+  type: 'pin' | 'fixed' | 'none';
 }
 
 interface Load {
   id: number;
   position: number;
   magnitude: number;
-  type: LoadType;
+  type: 'point' | 'distributed';
   endPosition: number;
 }
 
 interface Reaction {
   position: number;
-  type: SupportType;
+  type: string;
   R: number;
   M: number;
 }
@@ -57,38 +65,33 @@ interface Results {
   error?: string;
 }
 
-interface IconProps {
-  size?: number;
-}
-
-// Icon components
-const Trash2: React.FC<IconProps> = ({ size = 24 }) => (
+// Icon Components
+const Trash2: React.FC<{ size?: number }> = ({ size = 24 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/>
+    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" />
   </svg>
 );
 
-const Plus: React.FC<IconProps> = ({ size = 24 }) => (
+const Plus: React.FC<{ size?: number }> = ({ size = 24 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M12 5v14M5 12h14"/>
+    <path d="M12 5v14M5 12h14" />
   </svg>
 );
 
 const BeamSolver: React.FC = () => {
   const [beamLength, setBeamLength] = useState<number>(10);
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
-  const [material, setMaterial] = useState<MaterialType>('timber');
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric');
+  const [material, setMaterial] = useState<string>('timber');
   const [elasticModulus, setElasticModulus] = useState<number>(12);
-  const [crossSectionType, setCrossSectionType] = useState<CrossSectionType>('rectangular');
+  const [crossSectionType, setCrossSectionType] = useState<'rectangular' | 'custom'>('rectangular');
   const [sectionWidth, setSectionWidth] = useState<number>(0.1);
   const [sectionHeight, setSectionHeight] = useState<number>(0.2);
   const [momentOfInertia, setMomentOfInertia] = useState<number>(0.0000667);
 
-  const [leftSupportType, setLeftSupportType] = useState<SupportType>('pin');
+  const [leftSupportType, setLeftSupportType] = useState<'pin' | 'fixed' | 'none'>('pin');
   const [leftSupportPosition, setLeftSupportPosition] = useState<number>(0);
-  const [rightSupportType, setRightSupportType] = useState<SupportType>('pin');
+  const [rightSupportType, setRightSupportType] = useState<'pin' | 'fixed' | 'none'>('pin');
   const [rightSupportPosition, setRightSupportPosition] = useState<number>(10);
-  
   const [loads, setLoads] = useState<Load[]>([
     { id: 1, position: 5, magnitude: -10, type: 'point', endPosition: 5 }
   ]);
@@ -118,19 +121,19 @@ const BeamSolver: React.FC = () => {
     }
   };
 
-  const toDisplay = (value: number, type: UnitType): number => {
+  const toDisplay = (value: number, type: keyof UnitSystem): number => {
     return value * units[unitSystem][type].factor;
   };
 
-  const fromDisplay = (value: number, type: UnitType): number => {
+  const fromDisplay = (value: number, type: keyof UnitSystem): number => {
     return value / units[unitSystem][type].factor;
   };
 
-  const getUnit = (type: UnitType): string => {
+  const getUnit = (type: keyof UnitSystem): string => {
     return units[unitSystem][type].unit;
   };
 
-  const materials: Record<MaterialType, Material> = {
+  const materials: Materials = {
     timber: { name: 'Timber', E: 12, description: 'Typical softwood' },
     concrete: { name: 'Concrete', E: 30, description: 'Normal strength concrete' },
     steel: { name: 'Steel', E: 200, description: 'Structural steel' },
@@ -138,10 +141,10 @@ const BeamSolver: React.FC = () => {
     custom: { name: 'Custom', E: null, description: 'Enter custom value' }
   };
 
-  const handleMaterialChange = (newMaterial: MaterialType): void => {
+  const handleMaterialChange = (newMaterial: string): void => {
     setMaterial(newMaterial);
     if (newMaterial !== 'custom' && materials[newMaterial].E) {
-      setElasticModulus(materials[newMaterial].E as number);
+      setElasticModulus(materials[newMaterial].E!);
     }
   };
 
@@ -163,7 +166,7 @@ const BeamSolver: React.FC = () => {
     }
   };
 
-  const handleCrossSectionTypeChange = (newType: CrossSectionType): void => {
+  const handleCrossSectionTypeChange = (newType: 'rectangular' | 'custom'): void => {
     setCrossSectionType(newType);
     if (newType === 'rectangular') {
       setMomentOfInertia(calculateRectangularI(sectionWidth, sectionHeight));
@@ -185,7 +188,7 @@ const BeamSolver: React.FC = () => {
     setLoads(loads.filter(l => l.id !== id));
   };
 
-  const updateLoad = (id: number, field: keyof Load, value: number | LoadType): void => {
+  const updateLoad = (id: number, field: keyof Load, value: number | string): void => {
     setLoads(loads.map(l => l.id === id ? { ...l, [field]: value } : l));
   };
 
@@ -195,19 +198,19 @@ const BeamSolver: React.FC = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const supportsHtml = supports.map(s => 
+    const supportsHtml = supports.map(s =>
       '<tr><td>' + toDisplay(s.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</td><td>' + s.type.charAt(0).toUpperCase() + s.type.slice(1) + '</td></tr>'
     ).join('');
-    
-    const loadsHtml = loads.map(l => 
-      '<tr><td>' + (l.type.charAt(0).toUpperCase() + l.type.slice(1)) + '</td><td>' + toDisplay(l.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</td><td>' + 
-      (l.type === 'distributed' ? toDisplay(l.endPosition, 'length').toFixed(2) + ' ' + getUnit('length') : '-') + '</td><td>' + toDisplay(l.magnitude, l.type === 'distributed' ? 'distributed' : 'force').toFixed(2) + ' ' + 
+
+    const loadsHtml = loads.map(l =>
+      '<tr><td>' + (l.type.charAt(0).toUpperCase() + l.type.slice(1)) + '</td><td>' + toDisplay(l.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</td><td>' +
+      (l.type === 'distributed' ? toDisplay(l.endPosition, 'length').toFixed(2) + ' ' + getUnit('length') : '-') + '</td><td>' + toDisplay(l.magnitude, l.type === 'distributed' ? 'distributed' : 'force').toFixed(2) + ' ' +
       (l.type === 'distributed' ? getUnit('distributed') : getUnit('force')) + '</td></tr>'
     ).join('');
-    
-    const reactionsHtml = results.reactions.map((r, idx) => 
-      `<p><strong>R${idx + 1} = ${toDisplay(r.R, 'force').toFixed(2)} ${getUnit('force')}</strong> at x = ${toDisplay(r.position, 'length').toFixed(2)} ${getUnit('length')}</p>` +
-      (r.type === 'fixed' && r.M !== 0 ? `<p><strong>M${idx + 1} = ${toDisplay(r.M, 'moment').toFixed(2)} ${getUnit('moment')}</strong></p>` : '')
+
+    const reactionsHtml = results.reactions.map((r, idx) =>
+      '<p><strong>R' + (idx + 1) + ' = ' + toDisplay(r.R, 'force').toFixed(2) + ' ' + getUnit('force') + '</strong> at x = ' + toDisplay(r.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</p>' +
+      (r.type === 'fixed' && r.M !== 0 ? '<p><strong>M' + (idx + 1) + ' = ' + toDisplay(r.M, 'moment').toFixed(2) + ' ' + getUnit('moment') + '</strong></p>' : '')
     ).join('');
 
     // Generate SVG for reaction diagram
@@ -219,9 +222,9 @@ const BeamSolver: React.FC = () => {
       const beamWidth = width - 2 * padding;
       const scale = beamWidth / beamLength;
 
-      let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">`;
-      svg += `<line x1="${padding}" y1="${beamY}" x2="${padding + beamWidth}" y2="${beamY}" stroke="#000000" stroke-width="4" />`;
-      
+      let svg = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">';
+      svg += '<line x1="' + padding + '" y1="' + beamY + '" x2="' + (padding + beamWidth) + '" y2="' + beamY + '" stroke="#000000" stroke-width="4" />';
+
       results.reactions.forEach((reactionData, idx) => {
         const x = padding + reactionData.position * scale;
         const reaction = reactionData.R;
@@ -229,66 +232,68 @@ const BeamSolver: React.FC = () => {
         const arrowLength = Math.min(50, Math.max(20, Math.abs(reaction) * 3));
         const arrowStart = reaction > 0 ? beamY + 15 : beamY - 15;
         const arrowEnd = reaction > 0 ? beamY + 15 + arrowLength : beamY - 15 - arrowLength;
-        
+
         if (reactionData.type === 'pin') {
-          svg += `<polygon points="${x},${beamY} ${x-10},${beamY + 15} ${x+10},${beamY + 15}" fill="none" stroke="#000000" stroke-width="2" />`;
+          svg += '<polygon points="' + x + ',' + beamY + ' ' + (x - 10) + ',' + (beamY + 15) + ' ' + (x + 10) + ',' + (beamY + 15) + '" fill="none" stroke="#000000" stroke-width="2" />';
           if (reaction !== 0) {
-            svg += `<line x1="${x}" y1="${arrowStart}" x2="${x}" y2="${arrowEnd}" stroke="#2563eb" stroke-width="3" />`;
-            svg += `<polygon points="${reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`}" fill="#2563eb" />`;
-            svg += `<text x="${x}" y="${arrowEnd + (reaction > 0 ? 15 : -5)}" text-anchor="middle" font-size="9" fill="#2563eb" font-weight="bold">R${idx + 1}=${Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>`;
+            svg += '<line x1="' + x + '" y1="' + arrowStart + '" x2="' + x + '" y2="' + arrowEnd + '" stroke="#2563eb" stroke-width="3" />';
+            const arrowPoints = reaction > 0 ? (x + ',' + arrowStart + ' ' + (x - 6) + ',' + (arrowStart + 10) + ' ' + (x + 6) + ',' + (arrowStart + 10)) : (x + ',' + arrowStart + ' ' + (x - 6) + ',' + (arrowStart - 10) + ' ' + (x + 6) + ',' + (arrowStart - 10));
+            svg += '<polygon points="' + arrowPoints + '" fill="#2563eb" />';
+            svg += '<text x="' + x + '" y="' + (arrowEnd + (reaction > 0 ? 15 : -5)) + '" text-anchor="middle" font-size="9" fill="#2563eb" font-weight="bold">R' + (idx + 1) + '=' + Math.abs(toDisplay(reaction, 'force')).toFixed(1) + '</text>';
           }
         } else if (reactionData.type === 'fixed') {
-          svg += `<line x1="${x}" y1="${beamY - 20}" x2="${x}" y2="${beamY + 20}" stroke="#000000" stroke-width="4" />`;
+          svg += '<line x1="' + x + '" y1="' + (beamY - 20) + '" x2="' + x + '" y2="' + (beamY + 20) + '" stroke="#000000" stroke-width="4" />';
           if (reaction !== 0) {
-            svg += `<line x1="${x}" y1="${arrowStart}" x2="${x}" y2="${arrowEnd}" stroke="#2563eb" stroke-width="3" />`;
-            svg += `<polygon points="${reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`}" fill="#2563eb" />`;
-            svg += `<text x="${x + 10}" y="${arrowEnd + (reaction > 0 ? 15 : -5)}" text-anchor="start" font-size="9" fill="#2563eb" font-weight="bold">R${idx + 1}=${Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>`;
+            svg += '<line x1="' + x + '" y1="' + arrowStart + '" x2="' + x + '" y2="' + arrowEnd + '" stroke="#2563eb" stroke-width="3" />';
+            const arrowPoints = reaction > 0 ? (x + ',' + arrowStart + ' ' + (x - 6) + ',' + (arrowStart + 10) + ' ' + (x + 6) + ',' + (arrowStart + 10)) : (x + ',' + arrowStart + ' ' + (x - 6) + ',' + (arrowStart - 10) + ' ' + (x + 6) + ',' + (arrowStart - 10));
+            svg += '<polygon points="' + arrowPoints + '" fill="#2563eb" />';
+            svg += '<text x="' + (x + 10) + '" y="' + (arrowEnd + (reaction > 0 ? 15 : -5)) + '" text-anchor="start" font-size="9" fill="#2563eb" font-weight="bold">R' + (idx + 1) + '=' + Math.abs(toDisplay(reaction, 'force')).toFixed(1) + '</text>';
           }
           if (reactionM !== 0) {
-            svg += `<path d="M ${x} ${beamY-15} A 20 20 0 0 ${reactionM > 0 ? 1 : 0} ${x} ${beamY + 15}" fill="none" stroke="#dc2626" stroke-width="2" />`;
+            svg += '<path d="M ' + x + ' ' + (beamY - 15) + ' A 20 20 0 0 ' + (reactionM > 0 ? 1 : 0) + ' ' + x + ' ' + (beamY + 15) + '" fill="none" stroke="#dc2626" stroke-width="2" />';
             if (reactionM > 0) {
-              svg += `<polygon points="${x},${beamY + 15} ${x-8},${beamY + 10} ${x-3},${beamY + 18}" fill="#dc2626" />`;
+              svg += '<polygon points="' + x + ',' + (beamY + 15) + ' ' + (x - 8) + ',' + (beamY + 10) + ' ' + (x - 3) + ',' + (beamY + 18) + '" fill="#dc2626" />';
             } else {
-              svg += `<polygon points="${x},${beamY + 15} ${x+8},${beamY + 10} ${x+3},${beamY + 18}" fill="#dc2626" />`;
+              svg += '<polygon points="' + x + ',' + (beamY + 15) + ' ' + (x + 8) + ',' + (beamY + 10) + ' ' + (x + 3) + ',' + (beamY + 18) + '" fill="#dc2626" />';
             }
-            svg += `<text x="${x - 40}" y="${beamY - 30}" text-anchor="start" font-size="9" fill="#dc2626" font-weight="bold">M${idx + 1}=${Math.abs(toDisplay(reactionM, 'moment')).toFixed(1)}</text>`;
+            svg += '<text x="' + (x - 40) + '" y="' + (beamY - 30) + '" text-anchor="start" font-size="9" fill="#dc2626" font-weight="bold">M' + (idx + 1) + '=' + Math.abs(toDisplay(reactionM, 'moment')).toFixed(1) + '</text>';
           }
         }
       });
-      
-      svg += `<line x1="${padding}" y1="${height - 15}" x2="${width - padding}" y2="${height - 15}" stroke="#666666" stroke-width="1" />`;
-      svg += `<text x="${width / 2}" y="${height - 3}" text-anchor="middle" font-size="11" fill="#666666">${toDisplay(beamLength, 'length').toFixed(1)} ${getUnit('length')}</text>`;
+
+      svg += '<line x1="' + padding + '" y1="' + (height - 15) + '" x2="' + (width - padding) + '" y2="' + (height - 15) + '" stroke="#666666" stroke-width="1" />';
+      svg += '<text x="' + (width / 2) + '" y="' + (height - 3) + '" text-anchor="middle" font-size="11" fill="#666666">' + toDisplay(beamLength, 'length').toFixed(1) + ' ' + getUnit('length') + '</text>';
       svg += '</svg>';
       return svg;
     };
 
     // Generate SVG for diagram
-    const generateDiagramSvg = (data: number[], title: string, color: string, unitType: UnitType): string => {
+    const generateDiagramSvg = (data: number[], title: string, color: string, unitType: keyof UnitSystem): string => {
       const width = 500;
       const height = 200;
       const padding = 60;
       const graphWidth = width - 2 * padding;
       const graphHeight = height - 2 * padding;
-      
+
       const displayData = data.map(val => toDisplay(val, unitType));
       const unit = getUnit(unitType);
-      
+
       const maxAbsVal = Math.max(...displayData.map(Math.abs));
       const scale = maxAbsVal > 0 ? graphHeight / (2 * maxAbsVal) : 1;
-      
+
       const points = results.x.map((xVal, i) => {
         const px = padding + (xVal / beamLength) * graphWidth;
         const py = padding + graphHeight / 2 - displayData[i] * scale;
-        return `${px},${py}`;
+        return px + ',' + py;
       }).join(' ');
-      
-      let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">`;
-      svg += `<line x1="${padding}" y1="${padding + graphHeight / 2}" x2="${width - padding}" y2="${padding + graphHeight / 2}" stroke="black" stroke-width="1" />`;
-      svg += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" />`;
-      svg += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="black" stroke-width="1" />`;
+
+      let svg = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">';
+      svg += '<line x1="' + padding + '" y1="' + (padding + graphHeight / 2) + '" x2="' + (width - padding) + '" y2="' + (padding + graphHeight / 2) + '" stroke="black" stroke-width="1" />';
+      svg += '<polyline points="' + points + '" fill="none" stroke="' + color + '" stroke-width="2" />';
+      svg += '<line x1="' + padding + '" y1="' + padding + '" x2="' + padding + '" y2="' + (height - padding) + '" stroke="black" stroke-width="1" />';
       if (maxAbsVal > 0) {
-        svg += `<text x="${padding - 5}" y="${padding + 5}" text-anchor="end" font-size="10">${maxAbsVal.toFixed(2)} ${unit}</text>`;
-        svg += `<text x="${padding - 5}" y="${height - padding + 5}" text-anchor="end" font-size="10">${(-maxAbsVal).toFixed(2)} ${unit}</text>`;
+        svg += '<text x="' + (padding - 5) + '" y="' + (padding + 5) + '" text-anchor="end" font-size="10">' + maxAbsVal.toFixed(2) + ' ' + unit + '</text>';
+        svg += '<text x="' + (padding - 5) + '" y="' + (height - padding + 5) + '" text-anchor="end" font-size="10">' + (-maxAbsVal).toFixed(2) + ' ' + unit + '</text>';
       }
       svg += '</svg>';
       return svg;
@@ -298,7 +303,7 @@ const BeamSolver: React.FC = () => {
     const shearSvg = generateDiagramSvg(results.shear, 'Shear Force', '#2563eb', 'force');
     const momentSvg = generateDiagramSvg(results.moment, 'Bending Moment', '#dc2626', 'moment');
     const deflectionSvg = generateDiagramSvg(results.deflection, 'Deflection', '#16a34a', 'deflection');
-    
+
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -315,64 +320,33 @@ const BeamSolver: React.FC = () => {
     .diagram-section { margin: 30px 0; page-break-inside: avoid; }
     .diagram-title { font-weight: bold; margin-bottom: 10px; color: #374151; }
     svg { display: block; margin: 10px auto; }
-    @media print {
-      .diagram-section { page-break-inside: avoid; }
-    }
+    @media print { .diagram-section { page-break-inside: avoid; } }
   </style>
 </head>
 <body>
   <h1>2D Beam Analysis Report</h1>
-  
   <h2>1. Problem Statement</h2>
   <p><strong>Beam Length:</strong> ${toDisplay(beamLength, 'length').toFixed(2)} ${getUnit('length')}</p>
   <p><strong>Elastic Modulus (E):</strong> ${toDisplay(elasticModulus, 'modulus').toFixed(2)} ${getUnit('modulus')}</p>
   <p><strong>Moment of Inertia (I):</strong> ${toDisplay(momentOfInertia, 'inertia').toExponential(4)} ${getUnit('inertia')}</p>
-  
   <h3>Supports:</h3>
-  <table>
-    <tr><th>Position</th><th>Type</th></tr>
-    ${supportsHtml}
-  </table>
-  
+  <table><tr><th>Position</th><th>Type</th></tr>${supportsHtml}</table>
   <h3>Applied Loads:</h3>
-  <table>
-    <tr><th>Type</th><th>Position</th><th>End Position</th><th>Magnitude</th></tr>
-    ${loadsHtml}
-  </table>
-  
+  <table><tr><th>Type</th><th>Position</th><th>End Position</th><th>Magnitude</th></tr>${loadsHtml}</table>
   <div class="result-box">
-    <h3>Support Reactions:</h3>
-    ${reactionsHtml}
+    <h3>Support Reactions:</h3>${reactionsHtml}
     <h3>Maximum Deflection:</h3>
     <p><strong>δmax = ${Math.abs(toDisplay(results.maxDeflection, 'deflection')).toFixed(3)} ${getUnit('deflection')}</strong> at x = ${toDisplay(results.maxDeflectionPosition, 'length').toFixed(2)} ${getUnit('length')}</p>
   </div>
-  
   <h2>2. Diagrams</h2>
-  
-  <div class="diagram-section">
-    <div class="diagram-title">Support Reactions</div>
-    ${reactionSvg}
-  </div>
-  
-  <div class="diagram-section">
-    <div class="diagram-title">Shear Force Diagram (${getUnit('force')})</div>
-    ${shearSvg}
-  </div>
-  
-  <div class="diagram-section">
-    <div class="diagram-title">Bending Moment Diagram (${getUnit('moment')})</div>
-    ${momentSvg}
-  </div>
-  
-  <div class="diagram-section">
-    <div class="diagram-title">Deflection Diagram (${getUnit('deflection')})</div>
-    ${deflectionSvg}
-  </div>
-  
+  <div class="diagram-section"><div class="diagram-title">Support Reactions</div>${reactionSvg}</div>
+  <div class="diagram-section"><div class="diagram-title">Shear Force Diagram (${getUnit('force')})</div>${shearSvg}</div>
+  <div class="diagram-section"><div class="diagram-title">Bending Moment Diagram (${getUnit('moment')})</div>${momentSvg}</div>
+  <div class="diagram-section"><div class="diagram-title">Deflection Diagram (${getUnit('deflection')})</div>${deflectionSvg}</div>
   <p style="margin-top: 40px; color: #666;"><strong>Generated on:</strong> ${new Date().toLocaleString()}</p>
 </body>
 </html>`;
-    
+
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
@@ -384,25 +358,25 @@ const BeamSolver: React.FC = () => {
     const dx = beamLength / n;
     const x = Array.from({ length: n + 1 }, (_, i) => i * dx);
     const EI = elasticModulus * 1e9 * momentOfInertia;
-    
+
     // Sort supports by position
     const sortedSupports = [...supports].sort((a, b) => a.position - b.position);
-    
+
     if (sortedSupports.length === 0) {
-      setResults({ 
-        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-        deflection: x.map(() => 0), reactions: [], 
+      setResults({
+        x, shear: x.map(() => 0), moment: x.map(() => 0),
+        deflection: x.map(() => 0), reactions: [],
         maxDeflection: 0, maxDeflectionPosition: 0,
         error: "No supports defined"
       });
       return;
     }
-    
+
     // Get total applied load for equilibrium
     let totalLoad = 0;
     let totalMomentAboutFirst = 0;
     const firstPos = sortedSupports[0].position;
-    
+
     loads.forEach(load => {
       if (load.type === 'point') {
         totalLoad += load.magnitude;
@@ -415,29 +389,35 @@ const BeamSolver: React.FC = () => {
         totalMomentAboutFirst += resultant * (centroid - firstPos);
       }
     });
-    
+
     // Initialize reactions
-    const reactions: Reaction[] = sortedSupports.map(s => ({ 
-      position: s.position, 
+    const reactions: Reaction[] = sortedSupports.map(s => ({
+      position: s.position,
       type: s.type,
-      R: 0, 
-      M: 0 
+      R: 0,
+      M: 0
     }));
-    
-    // Helper functions
+
+    // Helper functions for numerical integration
     const calcMomentDiagram = (reactionList: Reaction[]): number[] => {
       const mom: number[] = [];
       for (let i = 0; i <= n; i++) {
         const xi = x[i];
         let M = 0;
-        
+
+        // Reactions contribution
+        // Note: reaction moment r.M is the internal moment at the support
+        // which acts as a concentrated moment (step change in diagram)
         reactionList.forEach(r => {
           if (xi >= r.position) {
             M += r.R * (xi - r.position);
-            M += r.M;
+            // Reaction moment: negative sign because r.M is the external 
+            // reaction moment, and internal moment has opposite sign
+            M -= r.M;
           }
         });
-        
+
+        // Loads contribution
         loads.forEach(load => {
           if (load.type === 'point' && xi >= load.position) {
             M += load.magnitude * (xi - load.position);
@@ -455,42 +435,42 @@ const BeamSolver: React.FC = () => {
       }
       return mom;
     };
-    
-    const calcSlopeAndDeflection = (momentDiagram: number[]): { slope: number[], deflection: number[] } => {
+
+    const calcSlopeAndDeflection = (momentDiagram: number[]): { slope: number[]; deflection: number[] } => {
       const slp: number[] = [0];
       for (let i = 1; i <= n; i++) {
-        slp.push(slp[i-1] + (momentDiagram[i] + momentDiagram[i-1]) / 2 * dx / EI);
+        slp.push(slp[i - 1] + (momentDiagram[i] + momentDiagram[i - 1]) / 2 * dx / EI);
       }
-      
+
       const def: number[] = [0];
       for (let i = 1; i <= n; i++) {
-        def.push(def[i-1] + (slp[i] + slp[i-1]) / 2 * dx);
+        def.push(def[i - 1] + (slp[i] + slp[i - 1]) / 2 * dx);
       }
-      
+
       return { slope: slp, deflection: def };
     };
-    
+
     const getValueAtPosition = (arr: number[], pos: number): number => {
       const idx = Math.min(n, Math.max(0, Math.round(pos / dx)));
       return arr[idx];
     };
-    
+
     // Determine structure type and solve
     const numSupports = sortedSupports.length;
     const numFixed = sortedSupports.filter(s => s.type === 'fixed').length;
     const numPin = sortedSupports.filter(s => s.type === 'pin').length;
-    
+
     // Check for unstable configurations
     if (numSupports === 1 && sortedSupports[0].type === 'pin') {
-      setResults({ 
-        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-        deflection: x.map(() => 0), reactions: [], 
+      setResults({
+        x, shear: x.map(() => 0), moment: x.map(() => 0),
+        deflection: x.map(() => 0), reactions: [],
         maxDeflection: 0, maxDeflectionPosition: 0,
         error: "Unstable: single pin support cannot resist rotation"
       });
       return;
     }
-    
+
     // Case 1: Single fixed support (cantilever) - determinate
     if (numSupports === 1 && sortedSupports[0].type === 'fixed') {
       reactions[0].R = -totalLoad;
@@ -508,7 +488,13 @@ const BeamSolver: React.FC = () => {
       const fixedSupport = sortedSupports.find(s => s.type === 'fixed')!;
       const pinIdx = sortedSupports.indexOf(pinSupport);
       const fixedIdx = sortedSupports.indexOf(fixedSupport);
-      
+
+      // Primary structure: cantilever from fixed support
+      // Redundant: reaction at pin support
+
+      // Step 1: Calculate deflection at pin location due to loads only (cantilever from fixed)
+      const primaryReactions: Reaction[] = [{ position: fixedSupport.position, R: -totalLoad, M: 0, type: 'fixed' }];
+      // Recalculate moment about fixed support
       let momentAboutFixed = 0;
       loads.forEach(load => {
         if (load.type === 'point') {
@@ -520,57 +506,77 @@ const BeamSolver: React.FC = () => {
           momentAboutFixed += resultant * (centroid - fixedSupport.position);
         }
       });
-      
-      const primaryReactions: Reaction[] = [{ position: fixedSupport.position, R: -totalLoad, M: -momentAboutFixed, type: 'fixed' }];
+      primaryReactions[0].M = -momentAboutFixed;
+
       const primaryMoment = calcMomentDiagram(primaryReactions);
       const primaryResult = calcSlopeAndDeflection(primaryMoment);
-      
+
+      // Apply fixed support BC (zero slope and deflection at fixed)
       const fixedIdx_n = Math.round(fixedSupport.position / dx);
       const slopeOffset = primaryResult.slope[fixedIdx_n];
-      for (let i = 0; i <= n; i++) primaryResult.slope[i] -= slopeOffset;
-      
+      for (let i = 0; i <= n; i++) {
+        primaryResult.slope[i] -= slopeOffset;
+      }
+      // Recalculate deflection
       primaryResult.deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        primaryResult.deflection[i] = primaryResult.deflection[i-1] + 
-          (primaryResult.slope[i] + primaryResult.slope[i-1]) / 2 * dx;
+        primaryResult.deflection[i] = primaryResult.deflection[i - 1] +
+          (primaryResult.slope[i] + primaryResult.slope[i - 1]) / 2 * dx;
       }
       const defOffset = primaryResult.deflection[fixedIdx_n];
-      for (let i = 0; i <= n; i++) primaryResult.deflection[i] -= defOffset;
-      
+      for (let i = 0; i <= n; i++) {
+        primaryResult.deflection[i] -= defOffset;
+      }
+
       const deflAtPin_loads = getValueAtPosition(primaryResult.deflection, pinSupport.position);
-      
-      const span = Math.abs(fixedSupport.position - pinSupport.position);
+
+      // Step 2: Calculate deflection at pin due to unit load at pin (on cantilever)
+      const unitReactions: Reaction[] = [{ position: fixedSupport.position, R: -1, M: 0, type: 'fixed' }];
+      unitReactions[0].M = -(pinSupport.position - fixedSupport.position);
+
+      // Add unit load effect
       const unitMoment: number[] = [];
       for (let i = 0; i <= n; i++) {
         const xi = x[i];
         let M = 0;
         if (xi >= fixedSupport.position) {
-          M += (-1) * (xi - fixedSupport.position);
-          M += (-span);
+          M += unitReactions[0].R * (xi - fixedSupport.position);
+          M -= unitReactions[0].M;  // Fixed: subtract reaction moment
         }
         if (xi >= pinSupport.position) {
           M += 1.0 * (xi - pinSupport.position);
         }
         unitMoment.push(M);
       }
+
       const unitResult = calcSlopeAndDeflection(unitMoment);
-      
+
+      // Apply fixed BC
       const unitSlopeOffset = unitResult.slope[fixedIdx_n];
-      for (let i = 0; i <= n; i++) unitResult.slope[i] -= unitSlopeOffset;
+      for (let i = 0; i <= n; i++) {
+        unitResult.slope[i] -= unitSlopeOffset;
+      }
       unitResult.deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        unitResult.deflection[i] = unitResult.deflection[i-1] + 
-          (unitResult.slope[i] + unitResult.slope[i-1]) / 2 * dx;
+        unitResult.deflection[i] = unitResult.deflection[i - 1] +
+          (unitResult.slope[i] + unitResult.slope[i - 1]) / 2 * dx;
       }
       const unitDefOffset = unitResult.deflection[fixedIdx_n];
-      for (let i = 0; i <= n; i++) unitResult.deflection[i] -= unitDefOffset;
-      
+      for (let i = 0; i <= n; i++) {
+        unitResult.deflection[i] -= unitDefOffset;
+      }
+
       const deflAtPin_unit = getValueAtPosition(unitResult.deflection, pinSupport.position);
+
+      // Step 3: Solve for redundant (pin reaction)
+      // deflAtPin_loads + R_pin * deflAtPin_unit = 0
       const R_pin = -deflAtPin_loads / deflAtPin_unit;
-      
+
+      // Step 4: Calculate final reactions
       reactions[pinIdx].R = R_pin;
       reactions[fixedIdx].R = -totalLoad - R_pin;
-      
+
+      // Moment at fixed support
       let M_fixed = 0;
       loads.forEach(load => {
         if (load.type === 'point') {
@@ -591,7 +597,11 @@ const BeamSolver: React.FC = () => {
       const rightSupport = sortedSupports[1];
       const span = rightSupport.position - leftSupport.position;
       const leftIdx = Math.round(leftSupport.position / dx);
-      
+
+      // Primary structure: cantilever from left support
+      // Redundants: R_right (vertical reaction at right) and M_right (moment at right)
+
+      // Calculate moment about left support for primary structure
       let momentAboutLeft = 0;
       loads.forEach(load => {
         if (load.type === 'point') {
@@ -603,35 +613,38 @@ const BeamSolver: React.FC = () => {
           momentAboutLeft += resultant * (centroid - leftSupport.position);
         }
       });
-      
+
+      // Primary cantilever reactions (all load carried by left support)
       const R_left_primary = -totalLoad;
       const M_left_primary = -momentAboutLeft;
-      
+
+      // Calculate deflection and slope on primary structure (cantilever)
       const primaryReactions: Reaction[] = [{ position: leftSupport.position, R: R_left_primary, M: M_left_primary, type: 'fixed' }];
       const primaryMoment = calcMomentDiagram(primaryReactions);
       const primaryResult = calcSlopeAndDeflection(primaryMoment);
-      
+
+      // Apply left fixed BC
       const slopeOffsetP = primaryResult.slope[leftIdx];
       for (let i = 0; i <= n; i++) primaryResult.slope[i] -= slopeOffsetP;
       primaryResult.deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        primaryResult.deflection[i] = primaryResult.deflection[i-1] + 
-          (primaryResult.slope[i] + primaryResult.slope[i-1]) / 2 * dx;
+        primaryResult.deflection[i] = primaryResult.deflection[i - 1] +
+          (primaryResult.slope[i] + primaryResult.slope[i - 1]) / 2 * dx;
       }
       const defOffsetP = primaryResult.deflection[leftIdx];
       for (let i = 0; i <= n; i++) primaryResult.deflection[i] -= defOffsetP;
-      
+
       const deflAtRight_loads = getValueAtPosition(primaryResult.deflection, rightSupport.position);
       const slopeAtRight_loads = getValueAtPosition(primaryResult.slope, rightSupport.position);
-      
-      // Unit load flexibility
+
+      // Flexibility coefficients for unit load at right support
       const unitLoadMoment: number[] = [];
       for (let i = 0; i <= n; i++) {
         const xi = x[i];
         let M = 0;
         if (xi >= leftSupport.position) {
           M += (-1) * (xi - leftSupport.position);
-          M += (-span);
+          M -= (-span);  // Fixed: subtract reaction moment
         }
         if (xi >= rightSupport.position) {
           M += 1.0 * (xi - rightSupport.position);
@@ -639,71 +652,77 @@ const BeamSolver: React.FC = () => {
         unitLoadMoment.push(M);
       }
       const unitLoadResult = calcSlopeAndDeflection(unitLoadMoment);
-      
+
+      // Apply left fixed BC
       const slopeOffsetUL = unitLoadResult.slope[leftIdx];
       for (let i = 0; i <= n; i++) unitLoadResult.slope[i] -= slopeOffsetUL;
       unitLoadResult.deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        unitLoadResult.deflection[i] = unitLoadResult.deflection[i-1] + 
-          (unitLoadResult.slope[i] + unitLoadResult.slope[i-1]) / 2 * dx;
+        unitLoadResult.deflection[i] = unitLoadResult.deflection[i - 1] +
+          (unitLoadResult.slope[i] + unitLoadResult.slope[i - 1]) / 2 * dx;
       }
       const defOffsetUL = unitLoadResult.deflection[leftIdx];
       for (let i = 0; i <= n; i++) unitLoadResult.deflection[i] -= defOffsetUL;
-      
+
       const f11 = getValueAtPosition(unitLoadResult.deflection, rightSupport.position);
       const f21 = getValueAtPosition(unitLoadResult.slope, rightSupport.position);
-      
-      // Unit moment flexibility
+
+      // Flexibility coefficients for unit moment at right support
       const unitMomentMoment: number[] = [];
       for (let i = 0; i <= n; i++) {
         const xi = x[i];
         let M = 0;
         if (xi >= leftSupport.position) {
-          M += (-1);
+          M -= (-1); // Fixed: subtract reaction moment at left due to unit moment at right
         }
         if (xi >= rightSupport.position) {
-          M += 1.0;
+          M -= 1.0; // Fixed: subtract unit moment (external moment applied)
         }
         unitMomentMoment.push(M);
       }
       const unitMomentResult = calcSlopeAndDeflection(unitMomentMoment);
-      
+
+      // Apply left fixed BC
       const slopeOffsetUM = unitMomentResult.slope[leftIdx];
       for (let i = 0; i <= n; i++) unitMomentResult.slope[i] -= slopeOffsetUM;
       unitMomentResult.deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        unitMomentResult.deflection[i] = unitMomentResult.deflection[i-1] + 
-          (unitMomentResult.slope[i] + unitMomentResult.slope[i-1]) / 2 * dx;
+        unitMomentResult.deflection[i] = unitMomentResult.deflection[i - 1] +
+          (unitMomentResult.slope[i] + unitMomentResult.slope[i - 1]) / 2 * dx;
       }
       const defOffsetUM = unitMomentResult.deflection[leftIdx];
       for (let i = 0; i <= n; i++) unitMomentResult.deflection[i] -= defOffsetUM;
-      
+
       const f12 = getValueAtPosition(unitMomentResult.deflection, rightSupport.position);
       const f22 = getValueAtPosition(unitMomentResult.slope, rightSupport.position);
-      
+
+      // Solve 2x2 system:
+      // f11 * R_right + f12 * M_right = -deflAtRight_loads
+      // f21 * R_right + f22 * M_right = -slopeAtRight_loads
       const det = f11 * f22 - f12 * f21;
       const R_right = (-deflAtRight_loads * f22 - f12 * (-slopeAtRight_loads)) / det;
       const M_right = (f11 * (-slopeAtRight_loads) - (-deflAtRight_loads) * f21) / det;
-      
+
+      // Final reactions
       reactions[1].R = R_right;
       reactions[1].M = M_right;
       reactions[0].R = -totalLoad - R_right;
       reactions[0].M = -momentAboutLeft - R_right * span - M_right;
     }
     else {
-      setResults({ 
-        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-        deflection: x.map(() => 0), reactions: [], 
+      setResults({
+        x, shear: x.map(() => 0), moment: x.map(() => 0),
+        deflection: x.map(() => 0), reactions: [],
         maxDeflection: 0, maxDeflectionPosition: 0,
         error: "Unsupported configuration"
       });
       return;
     }
-    
+
     // Calculate final shear and moment diagrams
     const shear: number[] = [];
     const moment = calcMomentDiagram(reactions);
-    
+
     x.forEach((xi) => {
       let V = 0;
       reactions.forEach((r) => {
@@ -722,62 +741,64 @@ const BeamSolver: React.FC = () => {
       });
       shear.push(V);
     });
-    
+
     // Calculate deflection
     const { slope, deflection } = calcSlopeAndDeflection(moment);
-    
+
     // Apply boundary conditions
     if (sortedSupports.length >= 2) {
       const idx1 = Math.round(sortedSupports[0].position / dx);
-      const idx2 = Math.round(sortedSupports[numSupports-1].position / dx);
-      
+      const idx2 = Math.round(sortedSupports[numSupports - 1].position / dx);
+
+      // Check if first support is fixed
       if (sortedSupports[0].type === 'fixed') {
-        const slopeOffset = slope[idx1];
-        for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
+        const slopeOffsetVal = slope[idx1];
+        for (let i = 0; i <= n; i++) slope[i] -= slopeOffsetVal;
         deflection[0] = 0;
         for (let i = 1; i <= n; i++) {
-          deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+          deflection[i] = deflection[i - 1] + (slope[i] + slope[i - 1]) / 2 * dx;
         }
-        const defOffset = deflection[idx1];
-        for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
-      } else if (sortedSupports[numSupports-1].type === 'fixed') {
-        const slopeOffset = slope[idx2];
-        for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
+        const defOffsetVal = deflection[idx1];
+        for (let i = 0; i <= n; i++) deflection[i] -= defOffsetVal;
+      } else if (sortedSupports[numSupports - 1].type === 'fixed') {
+        const slopeOffsetVal = slope[idx2];
+        for (let i = 0; i <= n; i++) slope[i] -= slopeOffsetVal;
         deflection[0] = 0;
         for (let i = 1; i <= n; i++) {
-          deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+          deflection[i] = deflection[i - 1] + (slope[i] + slope[i - 1]) / 2 * dx;
         }
-        const defOffset = deflection[idx2];
-        for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
+        const defOffsetVal = deflection[idx2];
+        for (let i = 0; i <= n; i++) deflection[i] -= defOffsetVal;
       } else {
+        // Simply supported BCs
         const d1 = deflection[idx1];
         const d2 = deflection[idx2];
-        const span = sortedSupports[numSupports-1].position - sortedSupports[0].position;
+        const spanVal = sortedSupports[numSupports - 1].position - sortedSupports[0].position;
         for (let i = 0; i <= n; i++) {
-          const t = (x[i] - sortedSupports[0].position) / span;
+          const t = (x[i] - sortedSupports[0].position) / spanVal;
           deflection[i] = deflection[i] - d1 - t * (d2 - d1);
         }
       }
     } else if (sortedSupports[0].type === 'fixed') {
       const idx = Math.round(sortedSupports[0].position / dx);
-      const slopeOffset = slope[idx];
-      for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
+      const slopeOffsetVal = slope[idx];
+      for (let i = 0; i <= n; i++) slope[i] -= slopeOffsetVal;
       deflection[0] = 0;
       for (let i = 1; i <= n; i++) {
-        deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+        deflection[i] = deflection[i - 1] + (slope[i] + slope[i - 1]) / 2 * dx;
       }
-      const defOffset = deflection[idx];
-      for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
+      const defOffsetVal = deflection[idx];
+      for (let i = 0; i <= n; i++) deflection[i] -= defOffsetVal;
     }
-    
+
     const deflectionMm = deflection.map(d => d * 1000);
     const maxDeflection = Math.max(...deflectionMm.map(Math.abs));
     const maxDeflectionIdx = deflectionMm.findIndex(d => Math.abs(d) === maxDeflection);
-    
-    setResults({ 
-      x, 
-      shear, 
-      moment, 
+
+    setResults({
+      x,
+      shear,
+      moment,
       deflection: deflectionMm,
       reactions,
       maxDeflection,
@@ -796,14 +817,14 @@ const BeamSolver: React.FC = () => {
     return (
       <svg width={width} height={height} className="border border-gray-200 bg-gray-50">
         <line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000000" strokeWidth="4" />
-        
+
         {supports.map(support => {
           const x = padding + support.position * scale;
-          
+
           if (support.type === 'pin') {
             return (
               <g key={support.id}>
-                <polygon points={`${x},${beamY} ${x-10},${beamY + 15} ${x+10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
+                <polygon points={`${x},${beamY} ${x - 10},${beamY + 15} ${x + 10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
               </g>
             );
           } else if (support.type === 'fixed') {
@@ -815,18 +836,18 @@ const BeamSolver: React.FC = () => {
           }
           return null;
         })}
-        
+
         {loads.map(load => {
           const x = padding + load.position * scale;
-          
+
           if (load.type === 'point') {
             const arrowStart = load.magnitude < 0 ? beamY - 40 : beamY + 40;
             const arrowEnd = beamY;
-            
+
             return (
               <g key={load.id}>
                 <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#dc2626" strokeWidth="2" />
-                <polygon points={load.magnitude < 0 ? `${x},${arrowEnd} ${x-6},${arrowEnd-10} ${x+6},${arrowEnd-10}` : `${x},${arrowEnd} ${x-6},${arrowEnd+10} ${x+6},${arrowEnd+10}`} fill="#dc2626" />
+                <polygon points={load.magnitude < 0 ? `${x},${arrowEnd} ${x - 6},${arrowEnd - 10} ${x + 6},${arrowEnd - 10}` : `${x},${arrowEnd} ${x - 6},${arrowEnd + 10} ${x + 6},${arrowEnd + 10}`} fill="#dc2626" />
                 <text x={x} y={load.magnitude < 0 ? arrowStart - 5 : arrowStart + 15} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(load.magnitude, 'force')).toFixed(1)} {getUnit('force')}</text>
               </g>
             );
@@ -837,7 +858,7 @@ const BeamSolver: React.FC = () => {
             const arrowSpacing = (x2 - x1) / numArrows;
             const arrowStart = load.magnitude < 0 ? beamY - 30 : beamY + 30;
             const arrowEnd = beamY;
-            
+
             return (
               <g key={load.id}>
                 <line x1={x1} y1={arrowStart} x2={x2} y2={arrowStart} stroke="#dc2626" strokeWidth="2" />
@@ -846,7 +867,7 @@ const BeamSolver: React.FC = () => {
                   return (
                     <g key={i}>
                       <line x1={ax} y1={arrowStart} x2={ax} y2={arrowEnd} stroke="#dc2626" strokeWidth="1.5" />
-                      <polygon points={load.magnitude < 0 ? `${ax},${arrowEnd} ${ax-4},${arrowEnd-8} ${ax+4},${arrowEnd-8}` : `${ax},${arrowEnd} ${ax-4},${arrowEnd+8} ${ax+4},${arrowEnd+8}`} fill="#dc2626" />
+                      <polygon points={load.magnitude < 0 ? `${ax},${arrowEnd} ${ax - 4},${arrowEnd - 8} ${ax + 4},${arrowEnd - 8}` : `${ax},${arrowEnd} ${ax - 4},${arrowEnd + 8} ${ax + 4},${arrowEnd + 8}`} fill="#dc2626" />
                     </g>
                   );
                 })}
@@ -856,7 +877,7 @@ const BeamSolver: React.FC = () => {
           }
           return null;
         })}
-        
+
         <line x1={padding} y1={height - 15} x2={width - padding} y2={height - 15} stroke="#666666" strokeWidth="1" />
         <line x1={padding} y1={height - 18} x2={padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
         <line x1={width - padding} y1={height - 18} x2={width - padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
@@ -865,29 +886,30 @@ const BeamSolver: React.FC = () => {
     );
   };
 
-  const drawDiagram = (data: number[], title: string, color: string, unitType: UnitType): JSX.Element | null => {
+  const drawDiagram = (data: number[], title: string, color: string, unitType: keyof UnitSystem): JSX.Element | null => {
     if (!results) return null;
-    
+
     const width = 500;
     const height = 200;
     const padding = 60;
     const graphWidth = width - 2 * padding;
     const graphHeight = height - 2 * padding;
-    
+
+    // Convert data to display units
     const displayData = data.map(val => toDisplay(val, unitType));
     const unit = getUnit(unitType);
-    
+
     const maxVal = Math.max(...displayData.map(Math.abs));
     const minVal = Math.min(...displayData);
     const maxAbsVal = Math.max(Math.abs(maxVal), Math.abs(minVal));
     const scale = maxAbsVal > 0 ? graphHeight / (2 * maxAbsVal) : 1;
-    
+
     const points = results.x.map((xVal, i) => {
       const px = padding + (xVal / beamLength) * graphWidth;
       const py = padding + graphHeight / 2 - displayData[i] * scale;
       return `${px},${py}`;
     }).join(' ');
-    
+
     return (
       <div className="mb-6">
         <h3 className="font-semibold mb-2">{title} ({unit})</h3>
@@ -908,7 +930,7 @@ const BeamSolver: React.FC = () => {
 
   const drawReactionDiagram = (): JSX.Element | null => {
     if (!results || !results.reactions) return null;
-    
+
     const width = 500;
     const height = 200;
     const padding = 60;
@@ -921,7 +943,7 @@ const BeamSolver: React.FC = () => {
         <h3 className="font-semibold mb-2">Support Reactions</h3>
         <svg width={width} height={height} className="border border-gray-300 bg-white">
           <line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000000" strokeWidth="4" />
-          
+
           {results.reactions.map((reactionData, idx) => {
             const x = padding + reactionData.position * scale;
             const reaction = reactionData.R;
@@ -929,15 +951,15 @@ const BeamSolver: React.FC = () => {
             const arrowLength = Math.min(50, Math.max(20, Math.abs(reaction) * 3));
             const arrowStart = reaction > 0 ? beamY + 15 : beamY - 15;
             const arrowEnd = reaction > 0 ? beamY + 15 + arrowLength : beamY - 15 - arrowLength;
-            
+
             if (reactionData.type === 'pin') {
               return (
                 <g key={idx}>
-                  <polygon points={`${x},${beamY} ${x-10},${beamY + 15} ${x+10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
+                  <polygon points={`${x},${beamY} ${x - 10},${beamY + 15} ${x + 10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
                   {reaction !== 0 && (
                     <g>
                       <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" />
-                      <polygon points={reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`} fill="#2563eb" />
+                      <polygon points={reaction > 0 ? `${x},${arrowStart} ${x - 6},${arrowStart + 10} ${x + 6},${arrowStart + 10}` : `${x},${arrowStart} ${x - 6},${arrowStart - 10} ${x + 6},${arrowStart - 10}`} fill="#2563eb" />
                       <text x={x} y={arrowEnd + (reaction > 0 ? 15 : -5)} textAnchor="middle" fontSize="9" fill="#2563eb" fontWeight="bold">R{idx + 1}={Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>
                     </g>
                   )}
@@ -950,17 +972,17 @@ const BeamSolver: React.FC = () => {
                   {reaction !== 0 && (
                     <g>
                       <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" />
-                      <polygon points={reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`} fill="#2563eb" />
+                      <polygon points={reaction > 0 ? `${x},${arrowStart} ${x - 6},${arrowStart + 10} ${x + 6},${arrowStart + 10}` : `${x},${arrowStart} ${x - 6},${arrowStart - 10} ${x + 6},${arrowStart - 10}`} fill="#2563eb" />
                       <text x={x - 50} y={arrowEnd + 5} textAnchor="start" fontSize="9" fill="#2563eb" fontWeight="bold">R{idx + 1}={Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>
                     </g>
                   )}
                   {reactionM !== 0 && (
                     <g>
-                      <path d={`M ${x} ${beamY-15} A 20 20 0 0 ${reactionM > 0 ? 1 : 0} ${x} ${beamY + 15}`} fill="none" stroke="#dc2626" strokeWidth="2" />
+                      <path d={`M ${x} ${beamY - 15} A 20 20 0 0 ${reactionM > 0 ? 1 : 0} ${x} ${beamY + 15}`} fill="none" stroke="#dc2626" strokeWidth="2" />
                       {reactionM > 0 ? (
-                        <polygon points={`${x},${beamY + 15} ${x-8},${beamY + 10} ${x-3},${beamY + 18}`} fill="#dc2626" />
+                        <polygon points={`${x},${beamY + 15} ${x - 8},${beamY + 10} ${x - 3},${beamY + 18}`} fill="#dc2626" />
                       ) : (
-                        <polygon points={`${x},${beamY + 15} ${x+8},${beamY + 10} ${x+3},${beamY + 18}`} fill="#dc2626" />
+                        <polygon points={`${x},${beamY + 15} ${x + 8},${beamY + 10} ${x + 3},${beamY + 18}`} fill="#dc2626" />
                       )}
                       <text x={x - 40} y={beamY - 30} textAnchor="start" fontSize="9" fill="#dc2626" fontWeight="bold">M{idx + 1}={Math.abs(toDisplay(reactionM, 'moment')).toFixed(1)}</text>
                     </g>
@@ -970,7 +992,7 @@ const BeamSolver: React.FC = () => {
             }
             return null;
           })}
-          
+
           <line x1={padding} y1={height - 15} x2={width - padding} y2={height - 15} stroke="#666666" strokeWidth="1" />
           <line x1={padding} y1={height - 18} x2={padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
           <line x1={width - padding} y1={height - 18} x2={width - padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
@@ -986,7 +1008,7 @@ const BeamSolver: React.FC = () => {
         <h1 className="text-3xl font-bold text-gray-800">2D Beam Solver</h1>
         <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow">
           <span className={`text-sm font-medium ${unitSystem === 'metric' ? 'text-blue-600' : 'text-gray-400'}`}>Metric</span>
-          <button 
+          <button
             onClick={() => setUnitSystem(unitSystem === 'metric' ? 'imperial' : 'metric')}
             className={`relative w-12 h-6 rounded-full transition-colors ${unitSystem === 'imperial' ? 'bg-blue-600' : 'bg-gray-300'}`}
           >
@@ -1002,20 +1024,13 @@ const BeamSolver: React.FC = () => {
             <h2 className="text-xl font-semibold mb-4">Beam Properties</h2>
             <label className="block mb-2">
               <span className="text-gray-700">Beam Length ({getUnit('length')}):</span>
-              <input 
-                type="number" 
-                value={toDisplay(beamLength, 'length').toFixed(2)} 
-                onChange={(e) => setBeamLength(fromDisplay(parseFloat(e.target.value) || 10, 'length'))} 
-                className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                min="1" 
-                step="0.5" 
-              />
+              <input type="number" value={toDisplay(beamLength, 'length').toFixed(2)} onChange={(e) => setBeamLength(fromDisplay(parseFloat(e.target.value) || 10, 'length'))} className="mt-1 block w-full rounded border-gray-300 border p-2" min="1" step="0.5" />
             </label>
             <label className="block mb-2">
               <span className="text-gray-700">Material:</span>
-              <select 
-                value={material} 
-                onChange={(e) => handleMaterialChange(e.target.value as MaterialType)} 
+              <select
+                value={material}
+                onChange={(e) => handleMaterialChange(e.target.value)}
                 className="mt-1 block w-full rounded border-gray-300 border p-2 bg-white"
               >
                 {Object.entries(materials).map(([key, mat]) => (
@@ -1026,56 +1041,56 @@ const BeamSolver: React.FC = () => {
             </label>
             <label className="block mb-2">
               <span className="text-gray-700">Elastic Modulus E ({getUnit('modulus')}):</span>
-              <input 
-                type="number" 
-                value={toDisplay(elasticModulus, 'modulus').toFixed(unitSystem === 'metric' ? 0 : 0)} 
+              <input
+                type="number"
+                value={toDisplay(elasticModulus, 'modulus').toFixed(unitSystem === 'metric' ? 0 : 0)}
                 onChange={(e) => {
                   setElasticModulus(fromDisplay(parseFloat(e.target.value) || 12, 'modulus'));
                   setMaterial('custom');
-                }} 
-                className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                min="1" 
-                step="1" 
+                }}
+                className="mt-1 block w-full rounded border-gray-300 border p-2"
+                min="1"
+                step="1"
               />
             </label>
-            
+
             <div className="border-t border-gray-200 pt-3 mt-3">
               <h3 className="font-semibold text-gray-700 mb-2">Cross Section</h3>
               <label className="block mb-2">
                 <span className="text-gray-700">Section Type:</span>
-                <select 
-                  value={crossSectionType} 
-                  onChange={(e) => handleCrossSectionTypeChange(e.target.value as CrossSectionType)} 
+                <select
+                  value={crossSectionType}
+                  onChange={(e) => handleCrossSectionTypeChange(e.target.value as 'rectangular' | 'custom')}
                   className="mt-1 block w-full rounded border-gray-300 border p-2 bg-white"
                 >
                   <option value="rectangular">Rectangular</option>
                   <option value="custom">Custom I value</option>
                 </select>
               </label>
-              
+
               {crossSectionType === 'rectangular' && (
                 <div className="bg-gray-50 p-3 rounded-lg mb-2">
                   <div className="flex gap-4 mb-2">
                     <label className="flex-1">
                       <span className="text-gray-600 text-sm">Width b ({getUnit('sectionDim')}):</span>
-                      <input 
-                        type="number" 
-                        value={toDisplay(sectionWidth, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)} 
-                        onChange={(e) => handleWidthChange(fromDisplay(parseFloat(e.target.value) || 0.1, 'sectionDim'))} 
-                        className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                        min="0.001" 
-                        step={units[unitSystem].sectionDim.step} 
+                      <input
+                        type="number"
+                        value={toDisplay(sectionWidth, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)}
+                        onChange={(e) => handleWidthChange(fromDisplay(parseFloat(e.target.value) || 0.1, 'sectionDim'))}
+                        className="mt-1 block w-full rounded border-gray-300 border p-2"
+                        min="0.001"
+                        step={units[unitSystem].sectionDim.step}
                       />
                     </label>
                     <label className="flex-1">
                       <span className="text-gray-600 text-sm">Height h ({getUnit('sectionDim')}):</span>
-                      <input 
-                        type="number" 
-                        value={toDisplay(sectionHeight, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)} 
-                        onChange={(e) => handleHeightChange(fromDisplay(parseFloat(e.target.value) || 0.2, 'sectionDim'))} 
-                        className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                        min="0.001" 
-                        step={units[unitSystem].sectionDim.step} 
+                      <input
+                        type="number"
+                        value={toDisplay(sectionHeight, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)}
+                        onChange={(e) => handleHeightChange(fromDisplay(parseFloat(e.target.value) || 0.2, 'sectionDim'))}
+                        className="mt-1 block w-full rounded border-gray-300 border p-2"
+                        min="0.001"
+                        step={units[unitSystem].sectionDim.step}
                       />
                     </label>
                   </div>
@@ -1087,17 +1102,17 @@ const BeamSolver: React.FC = () => {
                   </div>
                 </div>
               )}
-              
+
               {crossSectionType === 'custom' && (
                 <label className="block mb-2">
                   <span className="text-gray-700">Moment of Inertia I ({getUnit('inertia')}):</span>
-                  <input 
-                    type="number" 
-                    value={toDisplay(momentOfInertia, 'inertia').toExponential(4)} 
-                    onChange={(e) => setMomentOfInertia(fromDisplay(parseFloat(e.target.value) || 0.0001, 'inertia'))} 
-                    className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                    min="0.0000001" 
-                    step="0.0001" 
+                  <input
+                    type="number"
+                    value={toDisplay(momentOfInertia, 'inertia').toExponential(4)}
+                    onChange={(e) => setMomentOfInertia(fromDisplay(parseFloat(e.target.value) || 0.0001, 'inertia'))}
+                    className="mt-1 block w-full rounded border-gray-300 border p-2"
+                    min="0.000001"
+                    step="0.00001"
                   />
                 </label>
               )}
@@ -1109,20 +1124,16 @@ const BeamSolver: React.FC = () => {
             <div className="space-y-3">
               <div className="flex gap-2 items-center">
                 <span className="text-gray-700 w-12">Left:</span>
-                <input 
-                  type="number" 
-                  value={toDisplay(leftSupportPosition, 'length').toFixed(2)} 
-                  onChange={(e) => setLeftSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                  className="w-20 rounded border-gray-300 border p-2" 
+                <input
+                  type="number"
+                  value={toDisplay(leftSupportPosition, 'length').toFixed(2)}
+                  onChange={(e) => setLeftSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))}
+                  className="w-20 rounded border-gray-300 border p-2"
                   step="0.1"
                   disabled={leftSupportType === 'none'}
                 />
                 <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                <select 
-                  value={leftSupportType} 
-                  onChange={(e) => setLeftSupportType(e.target.value as SupportType)} 
-                  className="flex-1 rounded border-gray-300 border p-2"
-                >
+                <select value={leftSupportType} onChange={(e) => setLeftSupportType(e.target.value as 'pin' | 'fixed' | 'none')} className="flex-1 rounded border-gray-300 border p-2">
                   <option value="none">None</option>
                   <option value="pin">Pin</option>
                   <option value="fixed">Fixed</option>
@@ -1130,20 +1141,16 @@ const BeamSolver: React.FC = () => {
               </div>
               <div className="flex gap-2 items-center">
                 <span className="text-gray-700 w-12">Right:</span>
-                <input 
-                  type="number" 
-                  value={toDisplay(rightSupportPosition, 'length').toFixed(2)} 
-                  onChange={(e) => setRightSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                  className="w-20 rounded border-gray-300 border p-2" 
+                <input
+                  type="number"
+                  value={toDisplay(rightSupportPosition, 'length').toFixed(2)}
+                  onChange={(e) => setRightSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))}
+                  className="w-20 rounded border-gray-300 border p-2"
                   step="0.1"
                   disabled={rightSupportType === 'none'}
                 />
                 <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                <select 
-                  value={rightSupportType} 
-                  onChange={(e) => setRightSupportType(e.target.value as SupportType)} 
-                  className="flex-1 rounded border-gray-300 border p-2"
-                >
+                <select value={rightSupportType} onChange={(e) => setRightSupportType(e.target.value as 'pin' | 'fixed' | 'none')} className="flex-1 rounded border-gray-300 border p-2">
                   <option value="none">None</option>
                   <option value="pin">Pin</option>
                   <option value="fixed">Fixed</option>
@@ -1155,62 +1162,29 @@ const BeamSolver: React.FC = () => {
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Loads</h2>
-              <button onClick={addLoad} className="flex items-center gap-1 bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">
-                <Plus size={16} /> Add
-              </button>
+              <button onClick={addLoad} className="flex items-center gap-1 bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"><Plus size={16} /> Add</button>
             </div>
             {loads.map(load => (
               <div key={load.id} className="flex gap-2 mb-2 items-center flex-wrap">
-                <select 
-                  value={load.type} 
-                  onChange={(e) => updateLoad(load.id, 'type', e.target.value as LoadType)} 
-                  className="rounded border-gray-300 border p-1"
-                >
+                <select value={load.type} onChange={(e) => updateLoad(load.id, 'type', e.target.value)} className="rounded border-gray-300 border p-1">
                   <option value="point">Point</option>
                   <option value="distributed">Distributed</option>
                 </select>
-                <input 
-                  type="number" 
-                  value={toDisplay(load.position, 'length').toFixed(2)} 
-                  onChange={(e) => updateLoad(load.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                  className="w-20 rounded border-gray-300 border p-1" 
-                  placeholder="Start" 
-                  step="0.1" 
-                />
+                <input type="number" value={toDisplay(load.position, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="Start" step="0.1" />
                 {load.type === 'distributed' && (
-                  <input 
-                    type="number" 
-                    value={toDisplay(load.endPosition, 'length').toFixed(2)} 
-                    onChange={(e) => updateLoad(load.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                    className="w-20 rounded border-gray-300 border p-1" 
-                    placeholder="End" 
-                    step="0.1" 
-                  />
+                  <input type="number" value={toDisplay(load.endPosition, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="End" step="0.1" />
                 )}
-                <input 
-                  type="number" 
-                  value={toDisplay(load.magnitude, load.type === 'distributed' ? 'distributed' : 'force').toFixed(2)} 
-                  onChange={(e) => updateLoad(load.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, load.type === 'distributed' ? 'distributed' : 'force'))} 
-                  className="w-20 rounded border-gray-300 border p-1" 
-                  placeholder={load.type === 'distributed' ? getUnit('distributed') : getUnit('force')} 
-                  step="0.5" 
-                />
+                <input type="number" value={toDisplay(load.magnitude, load.type === 'distributed' ? 'distributed' : 'force').toFixed(2)} onChange={(e) => updateLoad(load.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, load.type === 'distributed' ? 'distributed' : 'force'))} className="w-20 rounded border-gray-300 border p-1" placeholder={load.type === 'distributed' ? getUnit('distributed') : getUnit('force')} step="0.5" />
                 <span className="text-xs text-gray-500">{load.type === 'distributed' ? getUnit('distributed') : getUnit('force')}</span>
-                <button onClick={() => removeLoad(load.id)} className="text-red-500 hover:text-red-700">
-                  <Trash2 size={18} />
-                </button>
+                <button onClick={() => removeLoad(load.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
               </div>
             ))}
           </div>
 
-          <button onClick={solveBeam} className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition">
-            Solve Beam
-          </button>
-          
+          <button onClick={solveBeam} className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition">Solve Beam</button>
+
           {results && (
-            <button onClick={exportToPDF} className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition">
-              Print Report as PDF
-            </button>
+            <button onClick={exportToPDF} className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition">Print Report as PDF</button>
           )}
         </div>
 
@@ -1222,7 +1196,7 @@ const BeamSolver: React.FC = () => {
 
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-xl font-semibold mb-4">Results</h2>
-            
+
             {results && (
               <div className="mb-4 p-3 bg-blue-50 rounded">
                 {results.error ? (
@@ -1244,7 +1218,7 @@ const BeamSolver: React.FC = () => {
                 )}
               </div>
             )}
-            
+
             {results ? (
               <div>
                 {drawReactionDiagram()}

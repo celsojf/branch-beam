@@ -354,10 +354,14 @@
                         let M = 0;
                         
                         // Reactions contribution
+                        // Note: reaction moment r.M is the internal moment at the support
+                        // which acts as a concentrated moment (step change in diagram)
                         reactionList.forEach(r => {
                             if (xi >= r.position) {
                                 M += r.R * (xi - r.position);
-                                M += r.M;
+                                // Reaction moment: negative sign because r.M is the external 
+                                // reaction moment, and internal moment has opposite sign
+                                M -= r.M;
                             }
                         });
                         
@@ -487,7 +491,7 @@
                         let M = 0;
                         if (xi >= fixedSupport.position) {
                             M += unitReactions[0].R * (xi - fixedSupport.position);
-                            M += unitReactions[0].M;
+                            M -= unitReactions[0].M;  // Fixed: subtract reaction moment
                         }
                         if (xi >= pinSupport.position) {
                             M += 1.0 * (xi - pinSupport.position);
@@ -592,7 +596,7 @@
                         let M = 0;
                         if (xi >= leftSupport.position) {
                             M += (-1) * (xi - leftSupport.position);
-                            M += (-span);
+                            M -= (-span);  // Fixed: subtract reaction moment
                         }
                         if (xi >= rightSupport.position) {
                             M += 1.0 * (xi - rightSupport.position);
@@ -621,10 +625,10 @@
                         const xi = x[i];
                         let M = 0;
                         if (xi >= leftSupport.position) {
-                            M += (-1); // reaction moment at left due to unit moment at right
+                            M -= (-1); // Fixed: subtract reaction moment at left due to unit moment at right
                         }
                         if (xi >= rightSupport.position) {
-                            M += 1.0; // unit moment
+                            M -= 1.0; // Fixed: subtract unit moment (external moment applied)
                         }
                         unitMomentMoment.push(M);
                     }
