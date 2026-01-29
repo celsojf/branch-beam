@@ -33,18 +33,22 @@ interface Materials {
   [key: string]: Material;
 }
 
-interface Support {
+type SupportType = 'pin' | 'fixed' | 'none';
+type ActiveSupportType = 'pin' | 'fixed';
+
+interface ActiveSupport {
   id: number;
   position: number;
-  type: 'pin' | 'fixed' | 'none';
+  type: ActiveSupportType;
 }
 
 interface Load {
   id: number;
   position: number;
-  magnitude: number;
-  type: 'point' | 'distributed';
-  endPosition: number;
+  magnitude: number;        // For point/moment loads, or start magnitude for distributed/triangular
+  type: 'point' | 'distributed' | 'moment' | 'triangular';
+  endPosition: number;      // End position for distributed/triangular loads
+  endMagnitude: number;     // End magnitude for triangular loads (distributed uses same magnitude)
 }
 
 interface Reaction {
@@ -88,12 +92,12 @@ const BeamSolver: React.FC = () => {
   const [sectionHeight, setSectionHeight] = useState<number>(0.2);
   const [momentOfInertia, setMomentOfInertia] = useState<number>(0.0000667);
 
-  const [leftSupportType, setLeftSupportType] = useState<'pin' | 'fixed' | 'none'>('pin');
+  const [leftSupportType, setLeftSupportType] = useState<SupportType>('pin');
   const [leftSupportPosition, setLeftSupportPosition] = useState<number>(0);
-  const [rightSupportType, setRightSupportType] = useState<'pin' | 'fixed' | 'none'>('pin');
+  const [rightSupportType, setRightSupportType] = useState<SupportType>('pin');
   const [rightSupportPosition, setRightSupportPosition] = useState<number>(10);
   const [loads, setLoads] = useState<Load[]>([
-    { id: 1, position: 5, magnitude: -10, type: 'point', endPosition: 5 }
+    { id: 1, position: 5, magnitude: -10, type: 'point', endPosition: 5, endMagnitude: 0 }
   ]);
   const [results, setResults] = useState<Results | null>(null);
 
@@ -174,14 +178,14 @@ const BeamSolver: React.FC = () => {
   };
 
   // Create supports array for solver (filter out 'none')
-  const supports: Support[] = [
+  const supports: ActiveSupport[] = [
     leftSupportType !== 'none' ? { id: 1, position: leftSupportPosition, type: leftSupportType } : null,
     rightSupportType !== 'none' ? { id: 2, position: rightSupportPosition, type: rightSupportType } : null
-  ].filter((s): s is Support => s !== null);
+  ].filter((s): s is ActiveSupport => s !== null);
 
   const addLoad = (): void => {
     const newId = Math.max(...loads.map(l => l.id), 0) + 1;
-    setLoads([...loads, { id: newId, position: beamLength / 2, magnitude: -10, type: 'point', endPosition: beamLength / 2 }]);
+    setLoads([...loads, { id: newId, position: beamLength / 2, magnitude: -10, type: 'point', endPosition: beamLength / 2, endMagnitude: 0 }]);
   };
 
   const removeLoad = (id: number): void => {
@@ -387,6 +391,36 @@ const BeamSolver: React.FC = () => {
         const centroid = load.position + loadLength / 2;
         totalLoad += resultant;
         totalMomentAboutFirst += resultant * (centroid - firstPos);
+      } else if (load.type === 'triangular') {
+        // Triangular (linearly varying) load from w1 at start to w2 at end
+        // Can be decomposed into a rectangle + triangle, or use direct formulas
+        const a = load.position;
+        const b = load.endPosition;
+        const w1 = load.magnitude;      // intensity at start
+        const w2 = load.endMagnitude;   // intensity at end
+        const L = b - a;
+        
+        // Resultant = area under the load diagram = (w1 + w2) * L / 2
+        const resultant = (w1 + w2) * L / 2;
+        
+        // Centroid location from start of load:
+        // For trapezoidal load: x_c = L * (w1 + 2*w2) / (3 * (w1 + w2))
+        // Handle special case when w1 + w2 = 0
+        let centroidFromStart: number;
+        if (Math.abs(w1 + w2) < 1e-10) {
+          centroidFromStart = L / 2;  // Symmetric about center
+        } else {
+          centroidFromStart = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+        }
+        const centroid = a + centroidFromStart;
+        
+        totalLoad += resultant;
+        totalMomentAboutFirst += resultant * (centroid - firstPos);
+      } else if (load.type === 'moment') {
+        // Concentrated moment doesn't contribute to vertical force equilibrium
+        // But it does contribute to moment equilibrium
+        // Positive moment = counterclockwise
+        totalMomentAboutFirst += load.magnitude;
       }
     });
 
@@ -399,38 +433,118 @@ const BeamSolver: React.FC = () => {
     }));
 
     // Helper functions for numerical integration
+    // Calculate bending moment at each point using the method of sections
+    // Convention: Positive moment = sagging (tension on bottom fiber)
+    // We sum moments of all forces to the LEFT of the section point
     const calcMomentDiagram = (reactionList: Reaction[]): number[] => {
       const mom: number[] = [];
       for (let i = 0; i <= n; i++) {
         const xi = x[i];
         let M = 0;
 
-        // Reactions contribution
-        // Note: reaction moment r.M is the internal moment at the support
-        // which acts as a concentrated moment (step change in diagram)
+        // Contribution from reaction forces and moments
         reactionList.forEach(r => {
           if (xi >= r.position) {
+            // Reaction force contribution: R × (distance from reaction to section)
+            // Positive R (upward) creates positive moment (counterclockwise about section)
             M += r.R * (xi - r.position);
-            // Reaction moment: negative sign because r.M is the external 
-            // reaction moment, and internal moment has opposite sign
+            
+            // Reaction moment contribution (for fixed supports)
+            // r.M is the reaction moment (what the support exerts on the beam)
+            // Internal bending moment = -r.M (opposite of reaction)
             M -= r.M;
           }
         });
 
-        // Loads contribution
+        // Contribution from applied loads
         loads.forEach(load => {
-          if (load.type === 'point' && xi >= load.position) {
-            M += load.magnitude * (xi - load.position);
+          if (load.type === 'point') {
+            // Point load contribution
+            if (xi >= load.position) {
+              // Negative load (downward) creates negative moment contribution
+              M += load.magnitude * (xi - load.position);
+            }
           } else if (load.type === 'distributed') {
-            if (xi >= load.position && xi <= load.endPosition) {
-              const len = xi - load.position;
-              M += load.magnitude * len * len / 2;
-            } else if (xi > load.endPosition) {
-              const len = load.endPosition - load.position;
-              M += load.magnitude * len * (xi - load.position - len / 2);
+            // Distributed load contribution
+            const w = load.magnitude; // load intensity (negative = downward)
+            const a = load.position;   // start position
+            const b = load.endPosition; // end position
+            
+            if (xi >= a && xi <= b) {
+              // Section is within the distributed load region
+              // Only the portion from 'a' to 'xi' contributes
+              const loadedLength = xi - a;
+              const resultant = w * loadedLength;
+              const centroidFromSection = loadedLength / 2;
+              M += resultant * centroidFromSection;
+            } else if (xi > b) {
+              // Section is past the distributed load
+              // The entire load contributes
+              const loadedLength = b - a;
+              const resultant = w * loadedLength;
+              const loadCentroid = a + loadedLength / 2;
+              M += resultant * (xi - loadCentroid);
+            }
+            // If xi < a, the load doesn't contribute (it's to the right of section)
+          } else if (load.type === 'moment') {
+            // Concentrated moment contribution
+            // Creates a step DECREASE in the moment diagram at the load position
+            // A positive (counterclockwise) applied moment causes the internal
+            // bending moment to decrease by that amount (jump down)
+            if (xi >= load.position) {
+              M -= load.magnitude;
+            }
+          } else if (load.type === 'triangular') {
+            // Triangular (linearly varying) load contribution
+            const a = load.position;
+            const b = load.endPosition;
+            const w1 = load.magnitude;      // intensity at start
+            const w2 = load.endMagnitude;   // intensity at end
+            const L = b - a;
+            
+            if (xi >= a && xi <= b && L > 0) {
+              // Section is within the triangular load region
+              // Load intensity at position x: w(x) = w1 + (w2 - w1) * (x - a) / L
+              const x_local = xi - a;
+              const w_at_xi = w1 + (w2 - w1) * x_local / L;
+              
+              // The portion from 'a' to 'xi' is a trapezoid with:
+              // - Width: x_local
+              // - Heights: w1 (at a) and w_at_xi (at xi)
+              // Resultant = (w1 + w_at_xi) * x_local / 2
+              const resultant = (w1 + w_at_xi) * x_local / 2;
+              
+              // Centroid of trapezoid from xi:
+              // x_c from a = x_local * (w1 + 2*w_at_xi) / (3 * (w1 + w_at_xi))
+              // Distance from section = x_local - x_c
+              let centroidFromSection: number;
+              if (Math.abs(w1 + w_at_xi) < 1e-10) {
+                centroidFromSection = x_local / 2;
+              } else {
+                const centroidFromA = x_local * (w1 + 2 * w_at_xi) / (3 * (w1 + w_at_xi));
+                centroidFromSection = x_local - centroidFromA;
+              }
+              
+              M += resultant * centroidFromSection;
+            } else if (xi > b && L > 0) {
+              // Section is past the triangular load
+              // The entire load contributes
+              const resultant = (w1 + w2) * L / 2;
+              
+              // Centroid of full trapezoid from start:
+              let centroidFromA: number;
+              if (Math.abs(w1 + w2) < 1e-10) {
+                centroidFromA = L / 2;
+              } else {
+                centroidFromA = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+              }
+              const loadCentroid = a + centroidFromA;
+              
+              M += resultant * (xi - loadCentroid);
             }
           }
         });
+        
         mom.push(M);
       }
       return mom;
@@ -477,9 +591,50 @@ const BeamSolver: React.FC = () => {
       reactions[0].M = -totalMomentAboutFirst;
     }
     // Case 2: Two pin supports (simply supported) - determinate
+    // Note: Loads can be anywhere on the beam (before, between, or after supports)
+    // Using equilibrium: ΣM about support 1 = 0, and ΣFy = 0
     else if (numSupports === 2 && numPin === 2) {
-      const span = sortedSupports[1].position - sortedSupports[0].position;
-      reactions[1].R = -totalMomentAboutFirst / span;
+      const support1Pos = sortedSupports[0].position;
+      const support2Pos = sortedSupports[1].position;
+      const span = support2Pos - support1Pos;
+      
+      // Calculate moment about support 1 from all loads
+      let momentAboutSupport1 = 0;
+      loads.forEach(load => {
+        if (load.type === 'point') {
+          // Moment = Force × distance from support 1
+          // Negative load (downward) at position > support1 creates negative moment (clockwise)
+          momentAboutSupport1 += load.magnitude * (load.position - support1Pos);
+        } else if (load.type === 'distributed') {
+          const loadLength = load.endPosition - load.position;
+          const resultant = load.magnitude * loadLength;
+          const centroid = load.position + loadLength / 2;
+          momentAboutSupport1 += resultant * (centroid - support1Pos);
+        } else if (load.type === 'triangular') {
+          const a = load.position;
+          const b = load.endPosition;
+          const w1 = load.magnitude;
+          const w2 = load.endMagnitude;
+          const L = b - a;
+          const resultant = (w1 + w2) * L / 2;
+          let centroidFromA = L / 2;
+          if (Math.abs(w1 + w2) > 1e-10) {
+            centroidFromA = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+          }
+          const centroid = a + centroidFromA;
+          momentAboutSupport1 += resultant * (centroid - support1Pos);
+        } else if (load.type === 'moment') {
+          // Concentrated moment contributes directly to moment equilibrium
+          momentAboutSupport1 += load.magnitude;
+        }
+      });
+      
+      // ΣM about support 1 = 0: R2 × span + momentAboutSupport1 = 0
+      // R2 = -momentAboutSupport1 / span
+      reactions[1].R = -momentAboutSupport1 / span;
+      
+      // ΣFy = 0: R1 + R2 + totalLoad = 0
+      // R1 = -totalLoad - R2
       reactions[0].R = -totalLoad - reactions[1].R;
     }
     // Case 3: One pin + one fixed (propped cantilever) - 1 degree hyperstatic
@@ -504,6 +659,21 @@ const BeamSolver: React.FC = () => {
           const resultant = load.magnitude * loadLength;
           const centroid = load.position + loadLength / 2;
           momentAboutFixed += resultant * (centroid - fixedSupport.position);
+        } else if (load.type === 'triangular') {
+          const a = load.position;
+          const b = load.endPosition;
+          const w1 = load.magnitude;
+          const w2 = load.endMagnitude;
+          const L = b - a;
+          const resultant = (w1 + w2) * L / 2;
+          let centroidFromA = L / 2;
+          if (Math.abs(w1 + w2) > 1e-10) {
+            centroidFromA = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+          }
+          const centroid = a + centroidFromA;
+          momentAboutFixed += resultant * (centroid - fixedSupport.position);
+        } else if (load.type === 'moment') {
+          momentAboutFixed += load.magnitude;
         }
       });
       primaryReactions[0].M = -momentAboutFixed;
@@ -541,7 +711,7 @@ const BeamSolver: React.FC = () => {
         let M = 0;
         if (xi >= fixedSupport.position) {
           M += unitReactions[0].R * (xi - fixedSupport.position);
-          M -= unitReactions[0].M;  // Fixed: subtract reaction moment
+          M -= unitReactions[0].M;  // Subtract reaction moment (internal = -reaction)
         }
         if (xi >= pinSupport.position) {
           M += 1.0 * (xi - pinSupport.position);
@@ -586,6 +756,21 @@ const BeamSolver: React.FC = () => {
           const resultant = load.magnitude * loadLength;
           const centroid = load.position + loadLength / 2;
           M_fixed -= resultant * (centroid - fixedSupport.position);
+        } else if (load.type === 'triangular') {
+          const a = load.position;
+          const b = load.endPosition;
+          const w1 = load.magnitude;
+          const w2 = load.endMagnitude;
+          const L = b - a;
+          const resultant = (w1 + w2) * L / 2;
+          let centroidFromA = L / 2;
+          if (Math.abs(w1 + w2) > 1e-10) {
+            centroidFromA = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+          }
+          const centroid = a + centroidFromA;
+          M_fixed -= resultant * (centroid - fixedSupport.position);
+        } else if (load.type === 'moment') {
+          M_fixed -= load.magnitude;
         }
       });
       M_fixed -= R_pin * (pinSupport.position - fixedSupport.position);
@@ -611,6 +796,21 @@ const BeamSolver: React.FC = () => {
           const resultant = load.magnitude * loadLength;
           const centroid = load.position + loadLength / 2;
           momentAboutLeft += resultant * (centroid - leftSupport.position);
+        } else if (load.type === 'triangular') {
+          const a = load.position;
+          const b = load.endPosition;
+          const w1 = load.magnitude;
+          const w2 = load.endMagnitude;
+          const L = b - a;
+          const resultant = (w1 + w2) * L / 2;
+          let centroidFromA = L / 2;
+          if (Math.abs(w1 + w2) > 1e-10) {
+            centroidFromA = L * (w1 + 2 * w2) / (3 * (w1 + w2));
+          }
+          const centroid = a + centroidFromA;
+          momentAboutLeft += resultant * (centroid - leftSupport.position);
+        } else if (load.type === 'moment') {
+          momentAboutLeft += load.magnitude;
         }
       });
 
@@ -644,7 +844,7 @@ const BeamSolver: React.FC = () => {
         let M = 0;
         if (xi >= leftSupport.position) {
           M += (-1) * (xi - leftSupport.position);
-          M -= (-span);  // Fixed: subtract reaction moment
+          M -= (-span);  // Subtract reaction moment (internal = -reaction)
         }
         if (xi >= rightSupport.position) {
           M += 1.0 * (xi - rightSupport.position);
@@ -673,10 +873,10 @@ const BeamSolver: React.FC = () => {
         const xi = x[i];
         let M = 0;
         if (xi >= leftSupport.position) {
-          M -= (-1); // Fixed: subtract reaction moment at left due to unit moment at right
+          M -= (-1); // Subtract reaction moment at left (internal = -reaction)
         }
         if (xi >= rightSupport.position) {
-          M -= 1.0; // Fixed: subtract unit moment (external moment applied)
+          M -= 1.0; // Subtract applied unit moment (causes jump down)
         }
         unitMomentMoment.push(M);
       }
@@ -737,7 +937,29 @@ const BeamSolver: React.FC = () => {
           } else if (xi > load.endPosition) {
             V += load.magnitude * (load.endPosition - load.position);
           }
+        } else if (load.type === 'triangular') {
+          const a = load.position;
+          const b = load.endPosition;
+          const w1 = load.magnitude;
+          const w2 = load.endMagnitude;
+          const L = b - a;
+          
+          if (L > 0) {
+            if (xi >= a && xi <= b) {
+              // Section is within the triangular load
+              // Accumulated load = integral of w(x) from a to xi
+              // w(x) = w1 + (w2 - w1) * (x - a) / L
+              // Integral = w1 * (xi - a) + (w2 - w1) * (xi - a)^2 / (2 * L)
+              const dx_load = xi - a;
+              V += w1 * dx_load + (w2 - w1) * dx_load * dx_load / (2 * L);
+            } else if (xi > b) {
+              // Section is past the triangular load - full load contributes
+              // Total load = (w1 + w2) * L / 2
+              V += (w1 + w2) * L / 2;
+            }
+          }
         }
+        // Note: moment loads don't contribute to shear
       });
       shear.push(V);
     });
@@ -872,6 +1094,87 @@ const BeamSolver: React.FC = () => {
                   );
                 })}
                 <text x={(x1 + x2) / 2} y={load.magnitude < 0 ? arrowStart - 8 : arrowStart + 18} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(load.magnitude, 'distributed')).toFixed(1)} {getUnit('distributed')}</text>
+              </g>
+            );
+          } else if (load.type === 'moment') {
+            // Draw concentrated moment as a curved arrow
+            const radius = 15;
+            const isPositive = load.magnitude > 0; // positive = counterclockwise
+            
+            return (
+              <g key={load.id}>
+                {/* Arc for the moment */}
+                <path 
+                  d={isPositive 
+                    ? `M ${x + radius} ${beamY} A ${radius} ${radius} 0 1 0 ${x - radius} ${beamY}`
+                    : `M ${x - radius} ${beamY} A ${radius} ${radius} 0 1 1 ${x + radius} ${beamY}`
+                  } 
+                  fill="none" 
+                  stroke="#9333ea" 
+                  strokeWidth="2" 
+                />
+                {/* Arrowhead */}
+                {isPositive ? (
+                  <polygon points={`${x - radius},${beamY} ${x - radius + 6},${beamY - 6} ${x - radius + 6},${beamY + 6}`} fill="#9333ea" />
+                ) : (
+                  <polygon points={`${x + radius},${beamY} ${x + radius - 6},${beamY - 6} ${x + radius - 6},${beamY + 6}`} fill="#9333ea" />
+                )}
+                <text x={x} y={beamY - 25} textAnchor="middle" fontSize="11" fill="#9333ea" fontWeight="bold">{Math.abs(toDisplay(load.magnitude, 'moment')).toFixed(1)} {getUnit('moment')}</text>
+              </g>
+            );
+          } else if (load.type === 'triangular') {
+            // Draw triangular/trapezoidal distributed load
+            const x1 = padding + load.position * scale;
+            const x2 = padding + load.endPosition * scale;
+            const w1 = load.magnitude;
+            const w2 = load.endMagnitude;
+            const maxW = Math.max(Math.abs(w1), Math.abs(w2));
+            const heightScale = maxW > 0 ? 30 / maxW : 1;
+            
+            // Determine direction (both should be same sign for proper visualization)
+            const avgMag = (w1 + w2) / 2;
+            const isDownward = avgMag < 0;
+            
+            // Heights at start and end (scaled)
+            const h1 = Math.abs(w1) * heightScale;
+            const h2 = Math.abs(w2) * heightScale;
+            
+            const topY1 = isDownward ? beamY - h1 : beamY + h1;
+            const topY2 = isDownward ? beamY - h2 : beamY + h2;
+            
+            // Draw the trapezoid outline
+            const numArrows = Math.max(3, Math.floor((x2 - x1) / 30));
+            const arrowSpacing = (x2 - x1) / numArrows;
+            
+            return (
+              <g key={load.id}>
+                {/* Trapezoid outline */}
+                <line x1={x1} y1={topY1} x2={x2} y2={topY2} stroke="#f97316" strokeWidth="2" />
+                <line x1={x1} y1={topY1} x2={x1} y2={beamY} stroke="#f97316" strokeWidth="1" />
+                <line x1={x2} y1={topY2} x2={x2} y2={beamY} stroke="#f97316" strokeWidth="1" />
+                
+                {/* Arrows */}
+                {Array.from({ length: numArrows + 1 }).map((_, i) => {
+                  const ax = x1 + i * arrowSpacing;
+                  const t = i / numArrows;
+                  const wAtX = w1 + (w2 - w1) * t;
+                  const hAtX = Math.abs(wAtX) * heightScale;
+                  const arrowStart = isDownward ? beamY - hAtX : beamY + hAtX;
+                  
+                  if (Math.abs(wAtX) < 0.01) return null;
+                  
+                  return (
+                    <g key={i}>
+                      <line x1={ax} y1={arrowStart} x2={ax} y2={beamY} stroke="#f97316" strokeWidth="1.5" />
+                      <polygon points={isDownward ? `${ax},${beamY} ${ax - 4},${beamY - 8} ${ax + 4},${beamY - 8}` : `${ax},${beamY} ${ax - 4},${beamY + 8} ${ax + 4},${beamY + 8}`} fill="#f97316" />
+                    </g>
+                  );
+                })}
+                
+                {/* Labels */}
+                <text x={x1} y={isDownward ? topY1 - 5 : topY1 + 15} textAnchor="middle" fontSize="10" fill="#f97316" fontWeight="bold">{Math.abs(toDisplay(w1, 'distributed')).toFixed(1)}</text>
+                <text x={x2} y={isDownward ? topY2 - 5 : topY2 + 15} textAnchor="middle" fontSize="10" fill="#f97316" fontWeight="bold">{Math.abs(toDisplay(w2, 'distributed')).toFixed(1)}</text>
+                <text x={(x1 + x2) / 2} y={isDownward ? Math.min(topY1, topY2) - 15 : Math.max(topY1, topY2) + 25} textAnchor="middle" fontSize="9" fill="#f97316">{getUnit('distributed')}</text>
               </g>
             );
           }
@@ -1133,7 +1436,7 @@ const BeamSolver: React.FC = () => {
                   disabled={leftSupportType === 'none'}
                 />
                 <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                <select value={leftSupportType} onChange={(e) => setLeftSupportType(e.target.value as 'pin' | 'fixed' | 'none')} className="flex-1 rounded border-gray-300 border p-2">
+                <select value={leftSupportType} onChange={(e) => setLeftSupportType(e.target.value as SupportType)} className="flex-1 rounded border-gray-300 border p-2">
                   <option value="none">None</option>
                   <option value="pin">Pin</option>
                   <option value="fixed">Fixed</option>
@@ -1150,7 +1453,7 @@ const BeamSolver: React.FC = () => {
                   disabled={rightSupportType === 'none'}
                 />
                 <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                <select value={rightSupportType} onChange={(e) => setRightSupportType(e.target.value as 'pin' | 'fixed' | 'none')} className="flex-1 rounded border-gray-300 border p-2">
+                <select value={rightSupportType} onChange={(e) => setRightSupportType(e.target.value as SupportType)} className="flex-1 rounded border-gray-300 border p-2">
                   <option value="none">None</option>
                   <option value="pin">Pin</option>
                   <option value="fixed">Fixed</option>
@@ -1164,21 +1467,39 @@ const BeamSolver: React.FC = () => {
               <h2 className="text-xl font-semibold">Loads</h2>
               <button onClick={addLoad} className="flex items-center gap-1 bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"><Plus size={16} /> Add</button>
             </div>
-            {loads.map(load => (
-              <div key={load.id} className="flex gap-2 mb-2 items-center flex-wrap">
-                <select value={load.type} onChange={(e) => updateLoad(load.id, 'type', e.target.value)} className="rounded border-gray-300 border p-1">
-                  <option value="point">Point</option>
-                  <option value="distributed">Distributed</option>
-                </select>
-                <input type="number" value={toDisplay(load.position, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="Start" step="0.1" />
-                {load.type === 'distributed' && (
-                  <input type="number" value={toDisplay(load.endPosition, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="End" step="0.1" />
-                )}
-                <input type="number" value={toDisplay(load.magnitude, load.type === 'distributed' ? 'distributed' : 'force').toFixed(2)} onChange={(e) => updateLoad(load.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, load.type === 'distributed' ? 'distributed' : 'force'))} className="w-20 rounded border-gray-300 border p-1" placeholder={load.type === 'distributed' ? getUnit('distributed') : getUnit('force')} step="0.5" />
-                <span className="text-xs text-gray-500">{load.type === 'distributed' ? getUnit('distributed') : getUnit('force')}</span>
-                <button onClick={() => removeLoad(load.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
-              </div>
-            ))}
+            {loads.map(load => {
+              const getLoadUnit = () => {
+                if (load.type === 'distributed' || load.type === 'triangular') return getUnit('distributed');
+                if (load.type === 'moment') return getUnit('moment');
+                return getUnit('force');
+              };
+              const getLoadUnitType = (): keyof UnitSystem => {
+                if (load.type === 'distributed' || load.type === 'triangular') return 'distributed';
+                if (load.type === 'moment') return 'moment';
+                return 'force';
+              };
+              return (
+                <div key={load.id} className="flex gap-2 mb-2 items-center flex-wrap">
+                  <select value={load.type} onChange={(e) => updateLoad(load.id, 'type', e.target.value)} className="rounded border-gray-300 border p-1">
+                    <option value="point">Point Force</option>
+                    <option value="distributed">Distributed (UDL)</option>
+                    <option value="triangular">Triangular/Trapezoidal</option>
+                    <option value="moment">Moment</option>
+                  </select>
+                  <input type="number" value={toDisplay(load.position, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="Start" step="0.1" />
+                  {(load.type === 'distributed' || load.type === 'triangular') && (
+                    <input type="number" value={toDisplay(load.endPosition, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="End" step="0.1" />
+                  )}
+                  <input type="number" value={toDisplay(load.magnitude, getLoadUnitType()).toFixed(2)} onChange={(e) => updateLoad(load.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, getLoadUnitType()))} className="w-20 rounded border-gray-300 border p-1" placeholder={load.type === 'triangular' ? 'w₁' : ''} step="0.5" />
+                  {load.type === 'triangular' && (
+                    <input type="number" value={toDisplay(load.endMagnitude, 'distributed').toFixed(2)} onChange={(e) => updateLoad(load.id, 'endMagnitude', fromDisplay(parseFloat(e.target.value) || 0, 'distributed'))} className="w-20 rounded border-gray-300 border p-1" placeholder="w₂" step="0.5" />
+                  )}
+                  <span className="text-xs text-gray-500">{getLoadUnit()}</span>
+                  <button onClick={() => removeLoad(load.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
+                </div>
+              );
+            })}
+            <p className="text-xs text-gray-400 mt-2">Point/Distributed: negative = downward. Moment: positive = counterclockwise</p>
           </div>
 
           <button onClick={solveBeam} className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition">Solve Beam</button>

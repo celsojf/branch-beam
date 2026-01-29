@@ -3,1193 +3,275 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Beam Solver with Deflection</title>
-    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <title>2D Beam Solver</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
-    <div id="root"></div>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
 
-    <script type="text/babel">
-        const { useState } = React;
+const Trash2 = ({ size = 24 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>;
+const Plus = ({ size = 24 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>;
 
-        const Trash2 = ({ size = 24 }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/>
-            </svg>
-        );
+const BeamSolver = () => {
+    const [beamLength, setBeamLength] = useState(10);
+    const [unitSystem, setUnitSystem] = useState('metric');
+    const [material, setMaterial] = useState('timber');
+    const [elasticModulus, setElasticModulus] = useState(12);
+    const [momentOfInertia, setMomentOfInertia] = useState(0.0000667);
+    const [leftSupportType, setLeftSupportType] = useState('pin');
+    const [leftSupportPosition, setLeftSupportPosition] = useState(0);
+    const [rightSupportType, setRightSupportType] = useState('pin');
+    const [rightSupportPosition, setRightSupportPosition] = useState(10);
+    const [loads, setLoads] = useState([{ id: 1, position: 5, magnitude: -10, type: 'point', endPosition: 5, endMagnitude: 0 }]);
+    const [results, setResults] = useState(null);
 
-        const Plus = ({ size = 24 }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14M5 12h14"/>
-            </svg>
-        );
+    const units = {
+        metric: { length: { unit: 'm', factor: 1 }, force: { unit: 'kN', factor: 1 }, distributed: { unit: 'kN/m', factor: 1 }, moment: { unit: 'kN·m', factor: 1 }, deflection: { unit: 'mm', factor: 1 }, inertia: { unit: 'm⁴', factor: 1 }, modulus: { unit: 'GPa', factor: 1 } },
+        imperial: { length: { unit: 'ft', factor: 3.28084 }, force: { unit: 'kip', factor: 0.224809 }, distributed: { unit: 'kip/ft', factor: 0.0685218 }, moment: { unit: 'kip·ft', factor: 0.737562 }, deflection: { unit: 'in', factor: 0.0393701 }, inertia: { unit: 'in⁴', factor: 2402509.61 }, modulus: { unit: 'ksi', factor: 145.038 } }
+    };
+    const toDisplay = (v, t) => v * units[unitSystem][t].factor;
+    const fromDisplay = (v, t) => v / units[unitSystem][t].factor;
+    const getUnit = (t) => units[unitSystem][t].unit;
 
-        const BeamSolver = () => {
-            const [beamLength, setBeamLength] = useState(10);
-            const [unitSystem, setUnitSystem] = useState('metric');
-            const [material, setMaterial] = useState('timber');
-            const [elasticModulus, setElasticModulus] = useState(12);
-            const [crossSectionType, setCrossSectionType] = useState('rectangular');
-            const [sectionWidth, setSectionWidth] = useState(0.1);  // always stored in meters
-            const [sectionHeight, setSectionHeight] = useState(0.2); // always stored in meters
-            const [momentOfInertia, setMomentOfInertia] = useState(0.0000667);
+    const materials = { timber: { name: 'Timber', E: 12 }, concrete: { name: 'Concrete', E: 30 }, steel: { name: 'Steel', E: 200 }, aluminum: { name: 'Aluminum', E: 70 }, custom: { name: 'Custom', E: null } };
+    const handleMaterialChange = (m) => { setMaterial(m); if (m !== 'custom' && materials[m].E) setElasticModulus(materials[m].E); };
 
-            // Unit conversion factors
-            const units = {
-                metric: {
-                    length: { unit: 'm', factor: 1 },
-                    sectionDim: { unit: 'm', factor: 1, step: 0.01 },
-                    force: { unit: 'kN', factor: 1 },
-                    distributed: { unit: 'kN/m', factor: 1 },
-                    moment: { unit: 'kN·m', factor: 1 },
-                    deflection: { unit: 'mm', factor: 1 },
-                    inertia: { unit: 'm⁴', factor: 1 },
-                    modulus: { unit: 'GPa', factor: 1 }
-                },
-                imperial: {
-                    length: { unit: 'ft', factor: 3.28084 },
-                    sectionDim: { unit: 'in', factor: 39.3701, step: 0.5 },
-                    force: { unit: 'kip', factor: 0.224809 },
-                    distributed: { unit: 'kip/ft', factor: 0.0685218 },
-                    moment: { unit: 'kip·ft', factor: 0.737562 },
-                    deflection: { unit: 'in', factor: 0.0393701 },
-                    inertia: { unit: 'in⁴', factor: 2402509.61 },
-                    modulus: { unit: 'ksi', factor: 145.038 }
-                }
-            };
+    const supports = [leftSupportType !== 'none' ? { id: 1, position: leftSupportPosition, type: leftSupportType } : null, rightSupportType !== 'none' ? { id: 2, position: rightSupportPosition, type: rightSupportType } : null].filter(Boolean);
+    const addLoad = () => setLoads([...loads, { id: Math.max(...loads.map(l => l.id), 0) + 1, position: beamLength / 2, magnitude: -10, type: 'point', endPosition: beamLength / 2, endMagnitude: 0 }]);
+    const removeLoad = (id) => setLoads(loads.filter(l => l.id !== id));
+    const updateLoad = (id, f, v) => setLoads(loads.map(l => l.id === id ? { ...l, [f]: v } : l));
 
-            const toDisplay = (value, type) => {
-                return value * units[unitSystem][type].factor;
-            };
+    const solveBeam = () => {
+        if (supports.length === 0) { setResults({ error: "No supports defined" }); return; }
+        const n = 200, dx = beamLength / n, x = Array.from({ length: n + 1 }, (_, i) => i * dx);
+        const EI = elasticModulus * 1e9 * momentOfInertia;
+        const sortedSupports = [...supports].sort((a, b) => a.position - b.position);
 
-            const fromDisplay = (value, type) => {
-                return value / units[unitSystem][type].factor;
-            };
+        let totalLoad = 0, totalMomentAboutFirst = 0;
+        const firstPos = sortedSupports[0].position;
+        
+        loads.forEach(ld => {
+            if (ld.type === 'point') { totalLoad += ld.magnitude; totalMomentAboutFirst += ld.magnitude * (ld.position - firstPos); }
+            else if (ld.type === 'distributed') { const len = ld.endPosition - ld.position, res = ld.magnitude * len; totalLoad += res; totalMomentAboutFirst += res * (ld.position + len / 2 - firstPos); }
+            else if (ld.type === 'triangular') { const L = ld.endPosition - ld.position, res = (ld.magnitude + ld.endMagnitude) * L / 2; let cfa = L / 2; if (Math.abs(ld.magnitude + ld.endMagnitude) > 1e-10) cfa = L * (ld.magnitude + 2 * ld.endMagnitude) / (3 * (ld.magnitude + ld.endMagnitude)); totalLoad += res; totalMomentAboutFirst += res * (ld.position + cfa - firstPos); }
+            else if (ld.type === 'moment') totalMomentAboutFirst += ld.magnitude;
+        });
 
-            const getUnit = (type) => {
-                return units[unitSystem][type].unit;
-            };
+        const reactions = sortedSupports.map(s => ({ position: s.position, type: s.type, R: 0, M: 0 }));
 
-            const materials = {
-                timber: { name: 'Timber', E: 12, description: 'Typical softwood' },
-                concrete: { name: 'Concrete', E: 30, description: 'Normal strength concrete' },
-                steel: { name: 'Steel', E: 200, description: 'Structural steel' },
-                aluminum: { name: 'Aluminum', E: 70, description: 'Aluminum alloy' },
-                custom: { name: 'Custom', E: null, description: 'Enter custom value' }
-            };
-
-            const handleMaterialChange = (newMaterial) => {
-                setMaterial(newMaterial);
-                if (newMaterial !== 'custom' && materials[newMaterial].E) {
-                    setElasticModulus(materials[newMaterial].E);
-                }
-            };
-
-            const calculateRectangularI = (b, h) => {
-                return (b * Math.pow(h, 3)) / 12;
-            };
-
-            const handleWidthChange = (newWidth) => {
-                setSectionWidth(newWidth);
-                if (crossSectionType === 'rectangular') {
-                    setMomentOfInertia(calculateRectangularI(newWidth, sectionHeight));
-                }
-            };
-
-            const handleHeightChange = (newHeight) => {
-                setSectionHeight(newHeight);
-                if (crossSectionType === 'rectangular') {
-                    setMomentOfInertia(calculateRectangularI(sectionWidth, newHeight));
-                }
-            };
-
-            const handleCrossSectionTypeChange = (newType) => {
-                setCrossSectionType(newType);
-                if (newType === 'rectangular') {
-                    setMomentOfInertia(calculateRectangularI(sectionWidth, sectionHeight));
-                }
-            };
-            const [leftSupportType, setLeftSupportType] = useState('pin');
-            const [leftSupportPosition, setLeftSupportPosition] = useState(0);
-            const [rightSupportType, setRightSupportType] = useState('pin');
-            const [rightSupportPosition, setRightSupportPosition] = useState(10);
-            const [loads, setLoads] = useState([
-                { id: 1, position: 5, magnitude: -10, type: 'point', endPosition: 5 }
-            ]);
-            const [results, setResults] = useState(null);
-
-            // Create supports array for solver (filter out 'none')
-            const supports = [
-                leftSupportType !== 'none' ? { id: 1, position: leftSupportPosition, type: leftSupportType } : null,
-                rightSupportType !== 'none' ? { id: 2, position: rightSupportPosition, type: rightSupportType } : null
-            ].filter(s => s !== null);
-
-            const addLoad = () => {
-                const newId = Math.max(...loads.map(l => l.id), 0) + 1;
-                setLoads([...loads, { id: newId, position: beamLength / 2, magnitude: -10, type: 'point', endPosition: beamLength / 2 }]);
-            };
-
-            const removeLoad = (id) => {
-                setLoads(loads.filter(l => l.id !== id));
-            };
-
-            const updateLoad = (id, field, value) => {
-                setLoads(loads.map(l => l.id === id ? { ...l, [field]: value } : l));
-            };
-
-            const exportToPDF = () => {
-                if (!results) return;
-
-                const printWindow = window.open('', '_blank');
-                if (!printWindow) return;
-
-                const supportsHtml = supports.map(s => 
-                    '<tr><td>' + toDisplay(s.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</td><td>' + s.type.charAt(0).toUpperCase() + s.type.slice(1) + '</td></tr>'
-                ).join('');
-                
-                const loadsHtml = loads.map(l => 
-                    '<tr><td>' + (l.type.charAt(0).toUpperCase() + l.type.slice(1)) + '</td><td>' + toDisplay(l.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</td><td>' + 
-                    (l.type === 'distributed' ? toDisplay(l.endPosition, 'length').toFixed(2) + ' ' + getUnit('length') : '-') + '</td><td>' + toDisplay(l.magnitude, l.type === 'distributed' ? 'distributed' : 'force').toFixed(2) + ' ' + 
-                    (l.type === 'distributed' ? getUnit('distributed') : getUnit('force')) + '</td></tr>'
-                ).join('');
-                
-                const reactionsHtml = results.reactions.map((r, idx) => 
-                    '<p><strong>R' + (idx + 1) + ' = ' + toDisplay(r.R, 'force').toFixed(2) + ' ' + getUnit('force') + '</strong> at x = ' + toDisplay(r.position, 'length').toFixed(2) + ' ' + getUnit('length') + '</p>' +
-                    (r.type === 'fixed' && r.M !== 0 ? '<p><strong>M' + (idx + 1) + ' = ' + toDisplay(r.M, 'moment').toFixed(2) + ' ' + getUnit('moment') + '</strong></p>' : '')
-                ).join('');
-
-                // Generate SVG for reaction diagram
-                const generateReactionSvg = () => {
-                    const width = 500;
-                    const height = 200;
-                    const padding = 60;
-                    const beamY = height / 2;
-                    const beamWidth = width - 2 * padding;
-                    const scale = beamWidth / beamLength;
-
-                    let svg = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">';
-                    svg += '<line x1="' + padding + '" y1="' + beamY + '" x2="' + (padding + beamWidth) + '" y2="' + beamY + '" stroke="#000000" stroke-width="4" />';
-                    
-                    results.reactions.forEach((reactionData, idx) => {
-                        const x = padding + reactionData.position * scale;
-                        const reaction = reactionData.R;
-                        const reactionM = reactionData.M;
-                        const arrowLength = Math.min(50, Math.max(20, Math.abs(reaction) * 3));
-                        const arrowStart = reaction > 0 ? beamY + 15 : beamY - 15;
-                        const arrowEnd = reaction > 0 ? beamY + 15 + arrowLength : beamY - 15 - arrowLength;
-                        
-                        if (reactionData.type === 'pin') {
-                            svg += '<polygon points="' + x + ',' + beamY + ' ' + (x-10) + ',' + (beamY + 15) + ' ' + (x+10) + ',' + (beamY + 15) + '" fill="none" stroke="#000000" stroke-width="2" />';
-                            if (reaction !== 0) {
-                                svg += '<line x1="' + x + '" y1="' + arrowStart + '" x2="' + x + '" y2="' + arrowEnd + '" stroke="#2563eb" stroke-width="3" />';
-                                const arrowPoints = reaction > 0 ? (x + ',' + arrowStart + ' ' + (x-6) + ',' + (arrowStart+10) + ' ' + (x+6) + ',' + (arrowStart+10)) : (x + ',' + arrowStart + ' ' + (x-6) + ',' + (arrowStart-10) + ' ' + (x+6) + ',' + (arrowStart-10));
-                                svg += '<polygon points="' + arrowPoints + '" fill="#2563eb" />';
-                                svg += '<text x="' + x + '" y="' + (arrowEnd + (reaction > 0 ? 15 : -5)) + '" text-anchor="middle" font-size="9" fill="#2563eb" font-weight="bold">R' + (idx + 1) + '=' + Math.abs(toDisplay(reaction, 'force')).toFixed(1) + '</text>';
-                            }
-                        } else if (reactionData.type === 'fixed') {
-                            svg += '<line x1="' + x + '" y1="' + (beamY - 20) + '" x2="' + x + '" y2="' + (beamY + 20) + '" stroke="#000000" stroke-width="4" />';
-                            if (reaction !== 0) {
-                                svg += '<line x1="' + x + '" y1="' + arrowStart + '" x2="' + x + '" y2="' + arrowEnd + '" stroke="#2563eb" stroke-width="3" />';
-                                const arrowPoints = reaction > 0 ? (x + ',' + arrowStart + ' ' + (x-6) + ',' + (arrowStart+10) + ' ' + (x+6) + ',' + (arrowStart+10)) : (x + ',' + arrowStart + ' ' + (x-6) + ',' + (arrowStart-10) + ' ' + (x+6) + ',' + (arrowStart-10));
-                                svg += '<polygon points="' + arrowPoints + '" fill="#2563eb" />';
-                                svg += '<text x="' + (x + 10) + '" y="' + (arrowEnd + (reaction > 0 ? 15 : -5)) + '" text-anchor="start" font-size="9" fill="#2563eb" font-weight="bold">R' + (idx + 1) + '=' + Math.abs(toDisplay(reaction, 'force')).toFixed(1) + '</text>';
-                            }
-                            if (reactionM !== 0) {
-                                svg += '<path d="M ' + x + ' ' + (beamY-15) + ' A 20 20 0 0 ' + (reactionM > 0 ? 1 : 0) + ' ' + x + ' ' + (beamY + 15) + '" fill="none" stroke="#dc2626" stroke-width="2" />';
-                                if (reactionM > 0) {
-                                    svg += '<polygon points="' + x + ',' + (beamY + 15) + ' ' + (x-8) + ',' + (beamY + 10) + ' ' + (x-3) + ',' + (beamY + 18) + '" fill="#dc2626" />';
-                                } else {
-                                    svg += '<polygon points="' + x + ',' + (beamY + 15) + ' ' + (x+8) + ',' + (beamY + 10) + ' ' + (x+3) + ',' + (beamY + 18) + '" fill="#dc2626" />';
-                                }
-                                svg += '<text x="' + (x - 40) + '" y="' + (beamY - 30) + '" text-anchor="start" font-size="9" fill="#dc2626" font-weight="bold">M' + (idx + 1) + '=' + Math.abs(toDisplay(reactionM, 'moment')).toFixed(1) + '</text>';
-                            }
-                        }
-                    });
-                    
-                    svg += '<line x1="' + padding + '" y1="' + (height - 15) + '" x2="' + (width - padding) + '" y2="' + (height - 15) + '" stroke="#666666" stroke-width="1" />';
-                    svg += '<text x="' + (width / 2) + '" y="' + (height - 3) + '" text-anchor="middle" font-size="11" fill="#666666">' + toDisplay(beamLength, 'length').toFixed(1) + ' ' + getUnit('length') + '</text>';
-                    svg += '</svg>';
-                    return svg;
-                };
-
-                // Generate SVG for diagram
-                const generateDiagramSvg = (data, title, color, unitType) => {
-                    const width = 500;
-                    const height = 200;
-                    const padding = 60;
-                    const graphWidth = width - 2 * padding;
-                    const graphHeight = height - 2 * padding;
-                    
-                    const displayData = data.map(val => toDisplay(val, unitType));
-                    const unit = getUnit(unitType);
-                    
-                    const maxAbsVal = Math.max(...displayData.map(Math.abs));
-                    const scale = maxAbsVal > 0 ? graphHeight / (2 * maxAbsVal) : 1;
-                    
-                    const points = results.x.map((xVal, i) => {
-                        const px = padding + (xVal / beamLength) * graphWidth;
-                        const py = padding + graphHeight / 2 - displayData[i] * scale;
-                        return px + ',' + py;
-                    }).join(' ');
-                    
-                    let svg = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ccc;background:white;">';
-                    svg += '<line x1="' + padding + '" y1="' + (padding + graphHeight / 2) + '" x2="' + (width - padding) + '" y2="' + (padding + graphHeight / 2) + '" stroke="black" stroke-width="1" />';
-                    svg += '<polyline points="' + points + '" fill="none" stroke="' + color + '" stroke-width="2" />';
-                    svg += '<line x1="' + padding + '" y1="' + padding + '" x2="' + padding + '" y2="' + (height - padding) + '" stroke="black" stroke-width="1" />';
-                    if (maxAbsVal > 0) {
-                        svg += '<text x="' + (padding - 5) + '" y="' + (padding + 5) + '" text-anchor="end" font-size="10">' + maxAbsVal.toFixed(2) + ' ' + unit + '</text>';
-                        svg += '<text x="' + (padding - 5) + '" y="' + (height - padding + 5) + '" text-anchor="end" font-size="10">' + (-maxAbsVal).toFixed(2) + ' ' + unit + '</text>';
+        const calcMomentDiagram = (rList) => {
+            const mom = [];
+            for (let i = 0; i <= n; i++) {
+                const xi = x[i]; let M = 0;
+                rList.forEach(r => { if (xi >= r.position) { M += r.R * (xi - r.position); M -= r.M; } });
+                loads.forEach(ld => {
+                    if (ld.type === 'point' && xi >= ld.position) M += ld.magnitude * (xi - ld.position);
+                    else if (ld.type === 'distributed') { const a = ld.position, b = ld.endPosition, w = ld.magnitude; if (xi >= a && xi <= b) M += w * Math.pow(xi - a, 2) / 2; else if (xi > b) M += w * (b - a) * (xi - (a + b) / 2); }
+                    else if (ld.type === 'triangular') {
+                        const a = ld.position, b = ld.endPosition, w1 = ld.magnitude, w2 = ld.endMagnitude, L = b - a;
+                        if (xi >= a && xi <= b && L > 0) { const xl = xi - a, wxi = w1 + (w2 - w1) * xl / L, res = (w1 + wxi) * xl / 2; let cfs = xl / 2; if (Math.abs(w1 + wxi) > 1e-10) cfs = xl - xl * (w1 + 2 * wxi) / (3 * (w1 + wxi)); M += res * cfs; }
+                        else if (xi > b && L > 0) { const res = (w1 + w2) * L / 2; let cfa = L / 2; if (Math.abs(w1 + w2) > 1e-10) cfa = L * (w1 + 2 * w2) / (3 * (w1 + w2)); M += res * (xi - a - cfa); }
                     }
-                    svg += '</svg>';
-                    return svg;
-                };
-
-                const reactionSvg = generateReactionSvg();
-                const shearSvg = generateDiagramSvg(results.shear, 'Shear Force', '#2563eb', 'force');
-                const momentSvg = generateDiagramSvg(results.moment, 'Bending Moment', '#dc2626', 'moment');
-                const deflectionSvg = generateDiagramSvg(results.deflection, 'Deflection', '#16a34a', 'deflection');
-                
-                const html = '<!DOCTYPE html>' +
-'<html>' +
-'<head>' +
-'  <title>Beam Analysis Report</title>' +
-'  <style>' +
-'    body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }' +
-'    h1 { color: #1f2937; border-bottom: 3px solid #4b5563; padding-bottom: 10px; }' +
-'    h2 { color: #374151; margin-top: 30px; }' +
-'    h3 { color: #4b5563; margin-top: 20px; }' +
-'    table { border-collapse: collapse; margin: 20px 0; width: 100%; }' +
-'    td, th { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }' +
-'    th { background: #e5e7eb; font-weight: bold; }' +
-'    .result-box { background: #dbeafe; padding: 15px; margin: 20px 0; border-radius: 5px; border: 2px solid #3b82f6; }' +
-'    .diagram-section { margin: 30px 0; page-break-inside: avoid; }' +
-'    .diagram-title { font-weight: bold; margin-bottom: 10px; color: #374151; }' +
-'    svg { display: block; margin: 10px auto; }' +
-'    @media print { .diagram-section { page-break-inside: avoid; } }' +
-'  </style>' +
-'</head>' +
-'<body>' +
-'  <h1>2D Beam Analysis Report</h1>' +
-'  <h2>1. Problem Statement</h2>' +
-'  <p><strong>Beam Length:</strong> ' + toDisplay(beamLength, 'length').toFixed(2) + ' ' + getUnit('length') + '</p>' +
-'  <p><strong>Elastic Modulus (E):</strong> ' + toDisplay(elasticModulus, 'modulus').toFixed(2) + ' ' + getUnit('modulus') + '</p>' +
-'  <p><strong>Moment of Inertia (I):</strong> ' + toDisplay(momentOfInertia, 'inertia').toExponential(4) + ' ' + getUnit('inertia') + '</p>' +
-'  <h3>Supports:</h3>' +
-'  <table><tr><th>Position</th><th>Type</th></tr>' + supportsHtml + '</table>' +
-'  <h3>Applied Loads:</h3>' +
-'  <table><tr><th>Type</th><th>Position</th><th>End Position</th><th>Magnitude</th></tr>' + loadsHtml + '</table>' +
-'  <div class="result-box">' +
-'    <h3>Support Reactions:</h3>' + reactionsHtml +
-'    <h3>Maximum Deflection:</h3>' +
-'    <p><strong>δmax = ' + Math.abs(toDisplay(results.maxDeflection, 'deflection')).toFixed(3) + ' ' + getUnit('deflection') + '</strong> at x = ' + toDisplay(results.maxDeflectionPosition, 'length').toFixed(2) + ' ' + getUnit('length') + '</p>' +
-'  </div>' +
-'  <h2>2. Diagrams</h2>' +
-'  <div class="diagram-section"><div class="diagram-title">Support Reactions</div>' + reactionSvg + '</div>' +
-'  <div class="diagram-section"><div class="diagram-title">Shear Force Diagram (' + getUnit('force') + ')</div>' + shearSvg + '</div>' +
-'  <div class="diagram-section"><div class="diagram-title">Bending Moment Diagram (' + getUnit('moment') + ')</div>' + momentSvg + '</div>' +
-'  <div class="diagram-section"><div class="diagram-title">Deflection Diagram (' + getUnit('deflection') + ')</div>' + deflectionSvg + '</div>' +
-'  <p style="margin-top: 40px; color: #666;"><strong>Generated on:</strong> ' + new Date().toLocaleString() + '</p>' +
-'</body>' +
-'</html>';
-                
-                printWindow.document.write(html);
-                printWindow.document.close();
-                printWindow.focus();
-                setTimeout(function() { printWindow.print(); }, 250);
-            };
-
-            const solveBeam = () => {
-                const n = 200;
-                const dx = beamLength / n;
-                const x = Array.from({ length: n + 1 }, (_, i) => i * dx);
-                const EI = elasticModulus * 1e9 * momentOfInertia;
-                
-                // Sort supports by position
-                const sortedSupports = [...supports].sort((a, b) => a.position - b.position);
-                
-                if (sortedSupports.length === 0) {
-                    setResults({ 
-                        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-                        deflection: x.map(() => 0), reactions: [], 
-                        maxDeflection: 0, maxDeflectionPosition: 0,
-                        error: "No supports defined"
-                    });
-                    return;
-                }
-                
-                // Get total applied load for equilibrium
-                let totalLoad = 0;
-                let totalMomentAboutFirst = 0;
-                const firstPos = sortedSupports[0].position;
-                
-                loads.forEach(load => {
-                    if (load.type === 'point') {
-                        totalLoad += load.magnitude;
-                        totalMomentAboutFirst += load.magnitude * (load.position - firstPos);
-                    } else if (load.type === 'distributed') {
-                        const loadLength = load.endPosition - load.position;
-                        const resultant = load.magnitude * loadLength;
-                        const centroid = load.position + loadLength / 2;
-                        totalLoad += resultant;
-                        totalMomentAboutFirst += resultant * (centroid - firstPos);
-                    }
+                    else if (ld.type === 'moment' && xi >= ld.position) M -= ld.magnitude;
                 });
-                
-                // Initialize reactions
-                const reactions = sortedSupports.map(s => ({ 
-                    position: s.position, 
-                    type: s.type,
-                    R: 0, 
-                    M: 0 
-                }));
-                
-                // Helper functions for numerical integration
-                const calcMomentDiagram = (reactionList) => {
-                    const mom = [];
-                    for (let i = 0; i <= n; i++) {
-                        const xi = x[i];
-                        let M = 0;
-                        
-                        // Reactions contribution
-                        // Note: reaction moment r.M is the internal moment at the support
-                        // which acts as a concentrated moment (step change in diagram)
-                        reactionList.forEach(r => {
-                            if (xi >= r.position) {
-                                M += r.R * (xi - r.position);
-                                // Reaction moment: negative sign because r.M is the external 
-                                // reaction moment, and internal moment has opposite sign
-                                M -= r.M;
-                            }
-                        });
-                        
-                        // Loads contribution
-                        loads.forEach(load => {
-                            if (load.type === 'point' && xi >= load.position) {
-                                M += load.magnitude * (xi - load.position);
-                            } else if (load.type === 'distributed') {
-                                if (xi >= load.position && xi <= load.endPosition) {
-                                    const len = xi - load.position;
-                                    M += load.magnitude * len * len / 2;
-                                } else if (xi > load.endPosition) {
-                                    const len = load.endPosition - load.position;
-                                    M += load.magnitude * len * (xi - load.position - len / 2);
-                                }
-                            }
-                        });
-                        mom.push(M);
-                    }
-                    return mom;
-                };
-                
-                const calcSlopeAndDeflection = (momentDiagram) => {
-                    const slp = [0];
-                    for (let i = 1; i <= n; i++) {
-                        slp.push(slp[i-1] + (momentDiagram[i] + momentDiagram[i-1]) / 2 * dx / EI);
-                    }
-                    
-                    const def = [0];
-                    for (let i = 1; i <= n; i++) {
-                        def.push(def[i-1] + (slp[i] + slp[i-1]) / 2 * dx);
-                    }
-                    
-                    return { slope: slp, deflection: def };
-                };
-                
-                const getValueAtPosition = (arr, pos) => {
-                    const idx = Math.min(n, Math.max(0, Math.round(pos / dx)));
-                    return arr[idx];
-                };
-                
-                // Determine structure type and solve
-                const numSupports = sortedSupports.length;
-                const hasFixed = sortedSupports.some(s => s.type === 'fixed');
-                const numFixed = sortedSupports.filter(s => s.type === 'fixed').length;
-                const numPin = sortedSupports.filter(s => s.type === 'pin').length;
-                
-                // Check for unstable configurations
-                if (numSupports === 1 && sortedSupports[0].type === 'pin') {
-                    setResults({ 
-                        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-                        deflection: x.map(() => 0), reactions: [], 
-                        maxDeflection: 0, maxDeflectionPosition: 0,
-                        error: "Unstable: single pin support cannot resist rotation"
-                    });
-                    return;
-                }
-                
-                // Case 1: Single fixed support (cantilever) - determinate
-                if (numSupports === 1 && sortedSupports[0].type === 'fixed') {
-                    reactions[0].R = -totalLoad;
-                    reactions[0].M = -totalMomentAboutFirst;
-                }
-                // Case 2: Two pin supports (simply supported) - determinate
-                else if (numSupports === 2 && numPin === 2) {
-                    const span = sortedSupports[1].position - sortedSupports[0].position;
-                    reactions[1].R = -totalMomentAboutFirst / span;
-                    reactions[0].R = -totalLoad - reactions[1].R;
-                }
-                // Case 3: One pin + one fixed (propped cantilever) - 1 degree hyperstatic
-                else if (numSupports === 2 && numPin === 1 && numFixed === 1) {
-                    const pinSupport = sortedSupports.find(s => s.type === 'pin');
-                    const fixedSupport = sortedSupports.find(s => s.type === 'fixed');
-                    const pinIdx = sortedSupports.indexOf(pinSupport);
-                    const fixedIdx = sortedSupports.indexOf(fixedSupport);
-                    const span = Math.abs(fixedSupport.position - pinSupport.position);
-                    
-                    // Primary structure: cantilever from fixed support
-                    // Redundant: reaction at pin support
-                    
-                    // Step 1: Calculate deflection at pin location due to loads only (cantilever from fixed)
-                    const primaryReactions = [{ position: fixedSupport.position, R: -totalLoad, M: 0, type: 'fixed' }];
-                    // Recalculate moment about fixed support
-                    let momentAboutFixed = 0;
-                    loads.forEach(load => {
-                        if (load.type === 'point') {
-                            momentAboutFixed += load.magnitude * (load.position - fixedSupport.position);
-                        } else if (load.type === 'distributed') {
-                            const loadLength = load.endPosition - load.position;
-                            const resultant = load.magnitude * loadLength;
-                            const centroid = load.position + loadLength / 2;
-                            momentAboutFixed += resultant * (centroid - fixedSupport.position);
-                        }
-                    });
-                    primaryReactions[0].M = -momentAboutFixed;
-                    
-                    const primaryMoment = calcMomentDiagram(primaryReactions);
-                    const primaryResult = calcSlopeAndDeflection(primaryMoment);
-                    
-                    // Apply fixed support BC (zero slope and deflection at fixed)
-                    const fixedIdx_n = Math.round(fixedSupport.position / dx);
-                    const slopeOffset = primaryResult.slope[fixedIdx_n];
-                    for (let i = 0; i <= n; i++) {
-                        primaryResult.slope[i] -= slopeOffset;
-                    }
-                    // Recalculate deflection
-                    primaryResult.deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        primaryResult.deflection[i] = primaryResult.deflection[i-1] + 
-                            (primaryResult.slope[i] + primaryResult.slope[i-1]) / 2 * dx;
-                    }
-                    const defOffset = primaryResult.deflection[fixedIdx_n];
-                    for (let i = 0; i <= n; i++) {
-                        primaryResult.deflection[i] -= defOffset;
-                    }
-                    
-                    const deflAtPin_loads = getValueAtPosition(primaryResult.deflection, pinSupport.position);
-                    
-                    // Step 2: Calculate deflection at pin due to unit load at pin (on cantilever)
-                    const unitReactions = [{ position: fixedSupport.position, R: -1, M: 0, type: 'fixed' }];
-                    unitReactions[0].M = -(pinSupport.position - fixedSupport.position);
-                    
-                    // Add unit load effect
-                    const unitMoment = [];
-                    for (let i = 0; i <= n; i++) {
-                        const xi = x[i];
-                        let M = 0;
-                        if (xi >= fixedSupport.position) {
-                            M += unitReactions[0].R * (xi - fixedSupport.position);
-                            M -= unitReactions[0].M;  // Fixed: subtract reaction moment
-                        }
-                        if (xi >= pinSupport.position) {
-                            M += 1.0 * (xi - pinSupport.position);
-                        }
-                        unitMoment.push(M);
-                    }
-                    
-                    const unitResult = calcSlopeAndDeflection(unitMoment);
-                    
-                    // Apply fixed BC
-                    const unitSlopeOffset = unitResult.slope[fixedIdx_n];
-                    for (let i = 0; i <= n; i++) {
-                        unitResult.slope[i] -= unitSlopeOffset;
-                    }
-                    unitResult.deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        unitResult.deflection[i] = unitResult.deflection[i-1] + 
-                            (unitResult.slope[i] + unitResult.slope[i-1]) / 2 * dx;
-                    }
-                    const unitDefOffset = unitResult.deflection[fixedIdx_n];
-                    for (let i = 0; i <= n; i++) {
-                        unitResult.deflection[i] -= unitDefOffset;
-                    }
-                    
-                    const deflAtPin_unit = getValueAtPosition(unitResult.deflection, pinSupport.position);
-                    
-                    // Step 3: Solve for redundant (pin reaction)
-                    // deflAtPin_loads + R_pin * deflAtPin_unit = 0
-                    const R_pin = -deflAtPin_loads / deflAtPin_unit;
-                    
-                    // Step 4: Calculate final reactions
-                    reactions[pinIdx].R = R_pin;
-                    reactions[fixedIdx].R = -totalLoad - R_pin;
-                    
-                    // Moment at fixed support
-                    let M_fixed = 0;
-                    loads.forEach(load => {
-                        if (load.type === 'point') {
-                            M_fixed -= load.magnitude * (load.position - fixedSupport.position);
-                        } else if (load.type === 'distributed') {
-                            const loadLength = load.endPosition - load.position;
-                            const resultant = load.magnitude * loadLength;
-                            const centroid = load.position + loadLength / 2;
-                            M_fixed -= resultant * (centroid - fixedSupport.position);
-                        }
-                    });
-                    M_fixed -= R_pin * (pinSupport.position - fixedSupport.position);
-                    reactions[fixedIdx].M = M_fixed;
-                }
-                // Case 4: Two fixed supports (fixed-fixed) - 2 degree hyperstatic
-                else if (numSupports === 2 && numFixed === 2) {
-                    const leftSupport = sortedSupports[0];
-                    const rightSupport = sortedSupports[1];
-                    const span = rightSupport.position - leftSupport.position;
-                    const leftIdx = Math.round(leftSupport.position / dx);
-                    const rightIdx = Math.round(rightSupport.position / dx);
-                    
-                    // Primary structure: cantilever from left support
-                    // Redundants: R_right (vertical reaction at right) and M_right (moment at right)
-                    
-                    // Calculate moment about left support for primary structure
-                    let momentAboutLeft = 0;
-                    loads.forEach(load => {
-                        if (load.type === 'point') {
-                            momentAboutLeft += load.magnitude * (load.position - leftSupport.position);
-                        } else if (load.type === 'distributed') {
-                            const loadLength = load.endPosition - load.position;
-                            const resultant = load.magnitude * loadLength;
-                            const centroid = load.position + loadLength / 2;
-                            momentAboutLeft += resultant * (centroid - leftSupport.position);
-                        }
-                    });
-                    
-                    // Primary cantilever reactions (all load carried by left support)
-                    const R_left_primary = -totalLoad;
-                    const M_left_primary = -momentAboutLeft;
-                    
-                    // Calculate deflection and slope on primary structure (cantilever)
-                    const primaryReactions = [{ position: leftSupport.position, R: R_left_primary, M: M_left_primary }];
-                    const primaryMoment = calcMomentDiagram(primaryReactions);
-                    const primaryResult = calcSlopeAndDeflection(primaryMoment);
-                    
-                    // Apply left fixed BC
-                    const slopeOffsetP = primaryResult.slope[leftIdx];
-                    for (let i = 0; i <= n; i++) primaryResult.slope[i] -= slopeOffsetP;
-                    primaryResult.deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        primaryResult.deflection[i] = primaryResult.deflection[i-1] + 
-                            (primaryResult.slope[i] + primaryResult.slope[i-1]) / 2 * dx;
-                    }
-                    const defOffsetP = primaryResult.deflection[leftIdx];
-                    for (let i = 0; i <= n; i++) primaryResult.deflection[i] -= defOffsetP;
-                    
-                    const deflAtRight_loads = getValueAtPosition(primaryResult.deflection, rightSupport.position);
-                    const slopeAtRight_loads = getValueAtPosition(primaryResult.slope, rightSupport.position);
-                    
-                    // Flexibility coefficients for unit load at right support
-                    const unitLoadReactions = [{ position: leftSupport.position, R: -1, M: -span }];
-                    const unitLoadMoment = [];
-                    for (let i = 0; i <= n; i++) {
-                        const xi = x[i];
-                        let M = 0;
-                        if (xi >= leftSupport.position) {
-                            M += (-1) * (xi - leftSupport.position);
-                            M -= (-span);  // Fixed: subtract reaction moment
-                        }
-                        if (xi >= rightSupport.position) {
-                            M += 1.0 * (xi - rightSupport.position);
-                        }
-                        unitLoadMoment.push(M);
-                    }
-                    const unitLoadResult = calcSlopeAndDeflection(unitLoadMoment);
-                    
-                    // Apply left fixed BC
-                    const slopeOffsetUL = unitLoadResult.slope[leftIdx];
-                    for (let i = 0; i <= n; i++) unitLoadResult.slope[i] -= slopeOffsetUL;
-                    unitLoadResult.deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        unitLoadResult.deflection[i] = unitLoadResult.deflection[i-1] + 
-                            (unitLoadResult.slope[i] + unitLoadResult.slope[i-1]) / 2 * dx;
-                    }
-                    const defOffsetUL = unitLoadResult.deflection[leftIdx];
-                    for (let i = 0; i <= n; i++) unitLoadResult.deflection[i] -= defOffsetUL;
-                    
-                    const f11 = getValueAtPosition(unitLoadResult.deflection, rightSupport.position); // defl at right due to unit load at right
-                    const f21 = getValueAtPosition(unitLoadResult.slope, rightSupport.position); // slope at right due to unit load at right
-                    
-                    // Flexibility coefficients for unit moment at right support
-                    const unitMomentMoment = [];
-                    for (let i = 0; i <= n; i++) {
-                        const xi = x[i];
-                        let M = 0;
-                        if (xi >= leftSupport.position) {
-                            M -= (-1); // Fixed: subtract reaction moment at left due to unit moment at right
-                        }
-                        if (xi >= rightSupport.position) {
-                            M -= 1.0; // Fixed: subtract unit moment (external moment applied)
-                        }
-                        unitMomentMoment.push(M);
-                    }
-                    const unitMomentResult = calcSlopeAndDeflection(unitMomentMoment);
-                    
-                    // Apply left fixed BC
-                    const slopeOffsetUM = unitMomentResult.slope[leftIdx];
-                    for (let i = 0; i <= n; i++) unitMomentResult.slope[i] -= slopeOffsetUM;
-                    unitMomentResult.deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        unitMomentResult.deflection[i] = unitMomentResult.deflection[i-1] + 
-                            (unitMomentResult.slope[i] + unitMomentResult.slope[i-1]) / 2 * dx;
-                    }
-                    const defOffsetUM = unitMomentResult.deflection[leftIdx];
-                    for (let i = 0; i <= n; i++) unitMomentResult.deflection[i] -= defOffsetUM;
-                    
-                    const f12 = getValueAtPosition(unitMomentResult.deflection, rightSupport.position); // defl at right due to unit moment at right
-                    const f22 = getValueAtPosition(unitMomentResult.slope, rightSupport.position); // slope at right due to unit moment at right
-                    
-                    // Solve 2x2 system:
-                    // f11 * R_right + f12 * M_right = -deflAtRight_loads
-                    // f21 * R_right + f22 * M_right = -slopeAtRight_loads
-                    const det = f11 * f22 - f12 * f21;
-                    const R_right = (-deflAtRight_loads * f22 - f12 * (-slopeAtRight_loads)) / det;
-                    const M_right = (f11 * (-slopeAtRight_loads) - (-deflAtRight_loads) * f21) / det;
-                    
-                    // Final reactions
-                    reactions[1].R = R_right;
-                    reactions[1].M = M_right;
-                    reactions[0].R = -totalLoad - R_right;
-                    reactions[0].M = -momentAboutLeft - R_right * span - M_right;
-                }
-                else {
-                    setResults({ 
-                        x, shear: x.map(() => 0), moment: x.map(() => 0), 
-                        deflection: x.map(() => 0), reactions: [], 
-                        maxDeflection: 0, maxDeflectionPosition: 0,
-                        error: "Unsupported configuration"
-                    });
-                    return;
-                }
-                
-                // Calculate final shear and moment diagrams
-                const shear = [];
-                const moment = calcMomentDiagram(reactions);
-                
-                x.forEach((xi) => {
-                    let V = 0;
-                    reactions.forEach((r) => {
-                        if (xi >= r.position) V += r.R;
-                    });
-                    loads.forEach(load => {
-                        if (load.type === 'point' && xi >= load.position) {
-                            V += load.magnitude;
-                        } else if (load.type === 'distributed') {
-                            if (xi >= load.position && xi <= load.endPosition) {
-                                V += load.magnitude * (xi - load.position);
-                            } else if (xi > load.endPosition) {
-                                V += load.magnitude * (load.endPosition - load.position);
-                            }
-                        }
-                    });
-                    shear.push(V);
-                });
-                
-                // Calculate deflection
-                const { slope, deflection } = calcSlopeAndDeflection(moment);
-                
-                // Apply boundary conditions
-                if (sortedSupports.length >= 2) {
-                    const idx1 = Math.round(sortedSupports[0].position / dx);
-                    const idx2 = Math.round(sortedSupports[numSupports-1].position / dx);
-                    
-                    // Check if first support is fixed
-                    if (sortedSupports[0].type === 'fixed') {
-                        const slopeOffset = slope[idx1];
-                        for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
-                        deflection[0] = 0;
-                        for (let i = 1; i <= n; i++) {
-                            deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
-                        }
-                        const defOffset = deflection[idx1];
-                        for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
-                    } else if (sortedSupports[numSupports-1].type === 'fixed') {
-                        const slopeOffset = slope[idx2];
-                        for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
-                        deflection[0] = 0;
-                        for (let i = 1; i <= n; i++) {
-                            deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
-                        }
-                        const defOffset = deflection[idx2];
-                        for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
-                    } else {
-                        // Simply supported BCs
-                        const d1 = deflection[idx1];
-                        const d2 = deflection[idx2];
-                        const span = sortedSupports[numSupports-1].position - sortedSupports[0].position;
-                        for (let i = 0; i <= n; i++) {
-                            const t = (x[i] - sortedSupports[0].position) / span;
-                            deflection[i] = deflection[i] - d1 - t * (d2 - d1);
-                        }
-                    }
-                } else if (sortedSupports[0].type === 'fixed') {
-                    const idx = Math.round(sortedSupports[0].position / dx);
-                    const slopeOffset = slope[idx];
-                    for (let i = 0; i <= n; i++) slope[i] -= slopeOffset;
-                    deflection[0] = 0;
-                    for (let i = 1; i <= n; i++) {
-                        deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
-                    }
-                    const defOffset = deflection[idx];
-                    for (let i = 0; i <= n; i++) deflection[i] -= defOffset;
-                }
-                
-                const deflectionMm = deflection.map(d => d * 1000);
-                const maxDeflection = Math.max(...deflectionMm.map(Math.abs));
-                const maxDeflectionIdx = deflectionMm.findIndex(d => Math.abs(d) === maxDeflection);
-                
-                setResults({ 
-                    x, 
-                    shear, 
-                    moment, 
-                    deflection: deflectionMm,
-                    reactions,
-                    maxDeflection,
-                    maxDeflectionPosition: x[maxDeflectionIdx] || 0
-                });
-            };
-
-            const drawBeamDiagram = () => {
-                const width = 500;
-                const height = 200;
-                const padding = 40;
-                const beamY = height / 2;
-                const beamWidth = width - 2 * padding;
-                const scale = beamWidth / beamLength;
-
-                return (
-                    <svg width={width} height={height} className="border border-gray-200 bg-gray-50">
-                        <line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000000" strokeWidth="4" />
-                        
-                        {supports.map(support => {
-                            const x = padding + support.position * scale;
-                            
-                            if (support.type === 'pin') {
-                                return (
-                                    <g key={support.id}>
-                                        <polygon points={`${x},${beamY} ${x-10},${beamY + 15} ${x+10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
-                                    </g>
-                                );
-                            } else if (support.type === 'fixed') {
-                                return (
-                                    <g key={support.id}>
-                                        <line x1={x} y1={beamY - 20} x2={x} y2={beamY + 20} stroke="#000000" strokeWidth="4" />
-                                    </g>
-                                );
-                            }
-                            return null;
-                        })}
-                        
-                        {loads.map(load => {
-                            const x = padding + load.position * scale;
-                            
-                            if (load.type === 'point') {
-                                const arrowStart = load.magnitude < 0 ? beamY - 40 : beamY + 40;
-                                const arrowEnd = beamY;
-                                
-                                return (
-                                    <g key={load.id}>
-                                        <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#dc2626" strokeWidth="2" />
-                                        <polygon points={load.magnitude < 0 ? `${x},${arrowEnd} ${x-6},${arrowEnd-10} ${x+6},${arrowEnd-10}` : `${x},${arrowEnd} ${x-6},${arrowEnd+10} ${x+6},${arrowEnd+10}`} fill="#dc2626" />
-                                        <text x={x} y={load.magnitude < 0 ? arrowStart - 5 : arrowStart + 15} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(load.magnitude, 'force')).toFixed(1)} {getUnit('force')}</text>
-                                    </g>
-                                );
-                            } else if (load.type === 'distributed') {
-                                const x1 = padding + load.position * scale;
-                                const x2 = padding + load.endPosition * scale;
-                                const numArrows = Math.max(3, Math.floor((x2 - x1) / 30));
-                                const arrowSpacing = (x2 - x1) / numArrows;
-                                const arrowStart = load.magnitude < 0 ? beamY - 30 : beamY + 30;
-                                const arrowEnd = beamY;
-                                
-                                return (
-                                    <g key={load.id}>
-                                        <line x1={x1} y1={arrowStart} x2={x2} y2={arrowStart} stroke="#dc2626" strokeWidth="2" />
-                                        {Array.from({ length: numArrows + 1 }).map((_, i) => {
-                                            const ax = x1 + i * arrowSpacing;
-                                            return (
-                                                <g key={i}>
-                                                    <line x1={ax} y1={arrowStart} x2={ax} y2={arrowEnd} stroke="#dc2626" strokeWidth="1.5" />
-                                                    <polygon points={load.magnitude < 0 ? `${ax},${arrowEnd} ${ax-4},${arrowEnd-8} ${ax+4},${arrowEnd-8}` : `${ax},${arrowEnd} ${ax-4},${arrowEnd+8} ${ax+4},${arrowEnd+8}`} fill="#dc2626" />
-                                                </g>
-                                            );
-                                        })}
-                                        <text x={(x1 + x2) / 2} y={load.magnitude < 0 ? arrowStart - 8 : arrowStart + 18} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(load.magnitude, 'distributed')).toFixed(1)} {getUnit('distributed')}</text>
-                                    </g>
-                                );
-                            }
-                            return null;
-                        })}
-                        
-                        <line x1={padding} y1={height - 15} x2={width - padding} y2={height - 15} stroke="#666666" strokeWidth="1" />
-                        <line x1={padding} y1={height - 18} x2={padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
-                        <line x1={width - padding} y1={height - 18} x2={width - padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
-                        <text x={width / 2} y={height - 3} textAnchor="middle" fontSize="11" fill="#666666">{toDisplay(beamLength, 'length').toFixed(1)} {getUnit('length')}</text>
-                    </svg>
-                );
-            };
-
-            const drawDiagram = (data, title, color, unitType) => {
-                if (!results) return null;
-                
-                const width = 500;
-                const height = 200;
-                const padding = 60;
-                const graphWidth = width - 2 * padding;
-                const graphHeight = height - 2 * padding;
-                
-                // Convert data to display units
-                const displayData = data.map(val => toDisplay(val, unitType));
-                const unit = getUnit(unitType);
-                
-                const maxVal = Math.max(...displayData.map(Math.abs));
-                const minVal = Math.min(...displayData);
-                const maxAbsVal = Math.max(Math.abs(maxVal), Math.abs(minVal));
-                const scale = maxAbsVal > 0 ? graphHeight / (2 * maxAbsVal) : 1;
-                
-                const points = results.x.map((xVal, i) => {
-                    const px = padding + (xVal / beamLength) * graphWidth;
-                    const py = padding + graphHeight / 2 - displayData[i] * scale;
-                    return `${px},${py}`;
-                }).join(' ');
-                
-                return (
-                    <div className="mb-6">
-                        <h3 className="font-semibold mb-2">{title} ({unit})</h3>
-                        <svg width={width} height={height} className="border border-gray-300 bg-white">
-                            <line x1={padding} y1={padding + graphHeight / 2} x2={width - padding} y2={padding + graphHeight / 2} stroke="black" strokeWidth="1" />
-                            <polyline points={points} fill="none" stroke={color} strokeWidth="2" />
-                            <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="black" strokeWidth="1" />
-                            {maxAbsVal > 0 && (
-                                <g>
-                                    <text x={padding - 5} y={padding + 5} textAnchor="end" fontSize="10">{maxAbsVal.toFixed(2)} {unit}</text>
-                                    <text x={padding - 5} y={height - padding + 5} textAnchor="end" fontSize="10">{(-maxAbsVal).toFixed(2)} {unit}</text>
-                                </g>
-                            )}
-                        </svg>
-                    </div>
-                );
-            };
-
-            const drawReactionDiagram = () => {
-                if (!results || !results.reactions) return null;
-                
-                const width = 500;
-                const height = 200;
-                const padding = 60;
-                const beamY = height / 2;
-                const beamWidth = width - 2 * padding;
-                const scale = beamWidth / beamLength;
-
-                return (
-                    <div className="mb-4">
-                        <h3 className="font-semibold mb-2">Support Reactions</h3>
-                        <svg width={width} height={height} className="border border-gray-300 bg-white">
-                            <line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000000" strokeWidth="4" />
-                            
-                            {results.reactions.map((reactionData, idx) => {
-                                const x = padding + reactionData.position * scale;
-                                const reaction = reactionData.R;
-                                const reactionM = reactionData.M;
-                                const arrowLength = Math.min(50, Math.max(20, Math.abs(reaction) * 3));
-                                const arrowStart = reaction > 0 ? beamY + 15 : beamY - 15;
-                                const arrowEnd = reaction > 0 ? beamY + 15 + arrowLength : beamY - 15 - arrowLength;
-                                
-                                if (reactionData.type === 'pin') {
-                                    return (
-                                        <g key={idx}>
-                                            <polygon points={`${x},${beamY} ${x-10},${beamY + 15} ${x+10},${beamY + 15}`} fill="none" stroke="#000000" strokeWidth="2" />
-                                            {reaction !== 0 && (
-                                                <g>
-                                                    <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" />
-                                                    <polygon points={reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`} fill="#2563eb" />
-                                                    <text x={x} y={arrowEnd + (reaction > 0 ? 15 : -5)} textAnchor="middle" fontSize="9" fill="#2563eb" fontWeight="bold">R{idx + 1}={Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>
-                                                </g>
-                                            )}
-                                        </g>
-                                    );
-                                } else if (reactionData.type === 'fixed') {
-                                    return (
-                                        <g key={idx}>
-                                            <line x1={x} y1={beamY - 20} x2={x} y2={beamY + 20} stroke="#000000" strokeWidth="4" />
-                                            {reaction !== 0 && (
-                                                <g>
-                                                    <line x1={x} y1={arrowStart} x2={x} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" />
-                                                    <polygon points={reaction > 0 ? `${x},${arrowStart} ${x-6},${arrowStart+10} ${x+6},${arrowStart+10}` : `${x},${arrowStart} ${x-6},${arrowStart-10} ${x+6},${arrowStart-10}`} fill="#2563eb" />
-                                                    <text x={x - 50} y={arrowEnd + 5} textAnchor="start" fontSize="9" fill="#2563eb" fontWeight="bold">R{idx + 1}={Math.abs(toDisplay(reaction, 'force')).toFixed(1)}</text>
-                                                </g>
-                                            )}
-                                            {reactionM !== 0 && (
-                                                <g>
-                                                    <path d={`M ${x} ${beamY-15} A 20 20 0 0 ${reactionM > 0 ? 1 : 0} ${x} ${beamY + 15}`} fill="none" stroke="#dc2626" strokeWidth="2" />
-                                                    {/* Arrowhead at the end of the arc */}
-                                                    {reactionM > 0 ? (
-                                                        <polygon points={`${x},${beamY + 15} ${x-8},${beamY + 10} ${x-3},${beamY + 18}`} fill="#dc2626" />
-                                                    ) : (
-                                                        <polygon points={`${x},${beamY + 15} ${x+8},${beamY + 10} ${x+3},${beamY + 18}`} fill="#dc2626" />
-                                                    )}
-                                                    <text x={x - 40} y={beamY - 30} textAnchor="start" fontSize="9" fill="#dc2626" fontWeight="bold">M{idx + 1}={Math.abs(toDisplay(reactionM, 'moment')).toFixed(1)}</text>
-                                                </g>
-                                            )}
-                                        </g>
-                                    );
-                                }
-                                return null;
-                            })}
-                            
-                            <line x1={padding} y1={height - 15} x2={width - padding} y2={height - 15} stroke="#666666" strokeWidth="1" />
-                            <line x1={padding} y1={height - 18} x2={padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
-                            <line x1={width - padding} y1={height - 18} x2={width - padding} y2={height - 12} stroke="#666666" strokeWidth="1" />
-                            <text x={width / 2} y={height - 3} textAnchor="middle" fontSize="11" fill="#666666">{toDisplay(beamLength, 'length').toFixed(1)} {getUnit('length')}</text>
-                        </svg>
-                    </div>
-                );
-            };
-
-            return (
-                <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
-                    <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-3xl font-bold text-gray-800">2D Beam Solver</h1>
-                        <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow">
-                            <span className={`text-sm font-medium ${unitSystem === 'metric' ? 'text-blue-600' : 'text-gray-400'}`}>Metric</span>
-                            <button 
-                                onClick={() => setUnitSystem(unitSystem === 'metric' ? 'imperial' : 'metric')}
-                                className={`relative w-12 h-6 rounded-full transition-colors ${unitSystem === 'imperial' ? 'bg-blue-600' : 'bg-gray-300'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${unitSystem === 'imperial' ? 'translate-x-6' : 'translate-x-0'}`}></span>
-                            </button>
-                            <span className={`text-sm font-medium ${unitSystem === 'imperial' ? 'text-blue-600' : 'text-gray-400'}`}>Imperial</span>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="space-y-6">
-                            <div className="bg-white p-4 rounded-lg shadow">
-                                <h2 className="text-xl font-semibold mb-4">Beam Properties</h2>
-                                <label className="block mb-2">
-                                    <span className="text-gray-700">Beam Length ({getUnit('length')}):</span>
-                                    <input type="number" value={toDisplay(beamLength, 'length').toFixed(2)} onChange={(e) => setBeamLength(fromDisplay(parseFloat(e.target.value) || 10, 'length'))} className="mt-1 block w-full rounded border-gray-300 border p-2" min="1" step="0.5" />
-                                </label>
-                                <label className="block mb-2">
-                                    <span className="text-gray-700">Material:</span>
-                                    <select 
-                                        value={material} 
-                                        onChange={(e) => handleMaterialChange(e.target.value)} 
-                                        className="mt-1 block w-full rounded border-gray-300 border p-2 bg-white"
-                                    >
-                                        {Object.entries(materials).map(([key, mat]) => (
-                                            <option key={key} value={key}>{mat.name} {mat.E ? `(E = ${mat.E} GPa)` : ''}</option>
-                                        ))}
-                                    </select>
-                                    <span className="text-xs text-gray-500">{materials[material].description}</span>
-                                </label>
-                                <label className="block mb-2">
-                                    <span className="text-gray-700">Elastic Modulus E ({getUnit('modulus')}):</span>
-                                    <input 
-                                        type="number" 
-                                        value={toDisplay(elasticModulus, 'modulus').toFixed(unitSystem === 'metric' ? 0 : 0)} 
-                                        onChange={(e) => {
-                                            setElasticModulus(fromDisplay(parseFloat(e.target.value) || 12, 'modulus'));
-                                            setMaterial('custom');
-                                        }} 
-                                        className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                                        min="1" 
-                                        step="1" 
-                                    />
-                                </label>
-                                
-                                <div className="border-t border-gray-200 pt-3 mt-3">
-                                    <h3 className="font-semibold text-gray-700 mb-2">Cross Section</h3>
-                                    <label className="block mb-2">
-                                        <span className="text-gray-700">Section Type:</span>
-                                        <select 
-                                            value={crossSectionType} 
-                                            onChange={(e) => handleCrossSectionTypeChange(e.target.value)} 
-                                            className="mt-1 block w-full rounded border-gray-300 border p-2 bg-white"
-                                        >
-                                            <option value="rectangular">Rectangular</option>
-                                            <option value="custom">Custom I value</option>
-                                        </select>
-                                    </label>
-                                    
-                                    {crossSectionType === 'rectangular' && (
-                                        <div className="bg-gray-50 p-3 rounded-lg mb-2">
-                                            <div className="flex gap-4 mb-2">
-                                                <label className="flex-1">
-                                                    <span className="text-gray-600 text-sm">Width b ({getUnit('sectionDim')}):</span>
-                                                    <input 
-                                                        type="number" 
-                                                        value={toDisplay(sectionWidth, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)} 
-                                                        onChange={(e) => handleWidthChange(fromDisplay(parseFloat(e.target.value) || 0.1, 'sectionDim'))} 
-                                                        className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                                                        min="0.001" 
-                                                        step={units[unitSystem].sectionDim.step} 
-                                                    />
-                                                </label>
-                                                <label className="flex-1">
-                                                    <span className="text-gray-600 text-sm">Height h ({getUnit('sectionDim')}):</span>
-                                                    <input 
-                                                        type="number" 
-                                                        value={toDisplay(sectionHeight, 'sectionDim').toFixed(unitSystem === 'metric' ? 3 : 2)} 
-                                                        onChange={(e) => handleHeightChange(fromDisplay(parseFloat(e.target.value) || 0.2, 'sectionDim'))} 
-                                                        className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                                                        min="0.001" 
-                                                        step={units[unitSystem].sectionDim.step} 
-                                                    />
-                                                </label>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="text-sm text-gray-600">
-                                                    <p>I = bh³/12</p>
-                                                    <p className="font-semibold text-gray-800">I = {toDisplay(momentOfInertia, 'inertia').toExponential(4)} {getUnit('inertia')}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {crossSectionType === 'custom' && (
-                                        <label className="block mb-2">
-                                            <span className="text-gray-700">Moment of Inertia I ({getUnit('inertia')}):</span>
-                                            <input 
-                                                type="number" 
-                                                value={toDisplay(momentOfInertia, 'inertia').toExponential(4)} 
-                                                onChange={(e) => setMomentOfInertia(fromDisplay(parseFloat(e.target.value) || 0.0001, 'inertia'))} 
-                                                className="mt-1 block w-full rounded border-gray-300 border p-2" 
-                                                min="0.000001" 
-                                                step="0.00001" 
-                                            />
-                                        </label>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-4 rounded-lg shadow">
-                                <h2 className="text-xl font-semibold mb-4">Supports</h2>
-                                <div className="space-y-3">
-                                    <div className="flex gap-2 items-center">
-                                        <span className="text-gray-700 w-12">Left:</span>
-                                        <input 
-                                            type="number" 
-                                            value={toDisplay(leftSupportPosition, 'length').toFixed(2)} 
-                                            onChange={(e) => setLeftSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                                            className="w-20 rounded border-gray-300 border p-2" 
-                                            step="0.1"
-                                            disabled={leftSupportType === 'none'}
-                                        />
-                                        <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                                        <select value={leftSupportType} onChange={(e) => setLeftSupportType(e.target.value)} className="flex-1 rounded border-gray-300 border p-2">
-                                            <option value="none">None</option>
-                                            <option value="pin">Pin</option>
-                                            <option value="fixed">Fixed</option>
-                                        </select>
-                                    </div>
-                                    <div className="flex gap-2 items-center">
-                                        <span className="text-gray-700 w-12">Right:</span>
-                                        <input 
-                                            type="number" 
-                                            value={toDisplay(rightSupportPosition, 'length').toFixed(2)} 
-                                            onChange={(e) => setRightSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} 
-                                            className="w-20 rounded border-gray-300 border p-2" 
-                                            step="0.1"
-                                            disabled={rightSupportType === 'none'}
-                                        />
-                                        <span className="text-gray-500 text-sm">{getUnit('length')}</span>
-                                        <select value={rightSupportType} onChange={(e) => setRightSupportType(e.target.value)} className="flex-1 rounded border-gray-300 border p-2">
-                                            <option value="none">None</option>
-                                            <option value="pin">Pin</option>
-                                            <option value="fixed">Fixed</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-4 rounded-lg shadow">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-xl font-semibold">Loads</h2>
-                                    <button onClick={addLoad} className="flex items-center gap-1 bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"><Plus size={16} /> Add</button>
-                                </div>
-                                {loads.map(load => (
-                                    <div key={load.id} className="flex gap-2 mb-2 items-center flex-wrap">
-                                        <select value={load.type} onChange={(e) => updateLoad(load.id, 'type', e.target.value)} className="rounded border-gray-300 border p-1">
-                                            <option value="point">Point</option>
-                                            <option value="distributed">Distributed</option>
-                                        </select>
-                                        <input type="number" value={toDisplay(load.position, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="Start" step="0.1" />
-                                        {load.type === 'distributed' && (
-                                            <input type="number" value={toDisplay(load.endPosition, 'length').toFixed(2)} onChange={(e) => updateLoad(load.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" placeholder="End" step="0.1" />
-                                        )}
-                                        <input type="number" value={toDisplay(load.magnitude, load.type === 'distributed' ? 'distributed' : 'force').toFixed(2)} onChange={(e) => updateLoad(load.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, load.type === 'distributed' ? 'distributed' : 'force'))} className="w-20 rounded border-gray-300 border p-1" placeholder={load.type === 'distributed' ? getUnit('distributed') : getUnit('force')} step="0.5" />
-                                        <span className="text-xs text-gray-500">{load.type === 'distributed' ? getUnit('distributed') : getUnit('force')}</span>
-                                        <button onClick={() => removeLoad(load.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <button onClick={solveBeam} className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition">Solve Beam</button>
-                            
-                            {results && (
-                                <button onClick={exportToPDF} className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition">Print Report as PDF</button>
-                            )}
-                        </div>
-
-                        <div className="space-y-6">
-                            <div className="bg-white p-4 rounded-lg shadow">
-                                <h2 className="text-xl font-semibold mb-4">Beam Visualization</h2>
-                                {drawBeamDiagram()}
-                            </div>
-
-                            <div className="bg-white p-4 rounded-lg shadow">
-                                <h2 className="text-xl font-semibold mb-4">Results</h2>
-                                
-                                {results && (
-                                    <div className="mb-4 p-3 bg-blue-50 rounded">
-                                        {results.error ? (
-                                            <p className="text-red-600 font-semibold">{results.error}</p>
-                                        ) : (
-                                            <>
-                                                <h3 className="font-semibold mb-2">Reactions:</h3>
-                                                {results.reactions && results.reactions.map((r, idx) => (
-                                                    <div key={idx}>
-                                                        <p>R{idx + 1} = {toDisplay(r.R, 'force').toFixed(2)} {getUnit('force')} (at x = {toDisplay(r.position, 'length').toFixed(2)} {getUnit('length')})</p>
-                                                        {r.type === 'fixed' && r.M !== 0 && (
-                                                            <p>M{idx + 1} = {toDisplay(r.M, 'moment').toFixed(2)} {getUnit('moment')}</p>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                                <h3 className="font-semibold mt-3 mb-2">Maximum Deflection:</h3>
-                                                <p>{Math.abs(toDisplay(results.maxDeflection, 'deflection')).toFixed(3)} {getUnit('deflection')} at x = {toDisplay(results.maxDeflectionPosition, 'length').toFixed(2)} {getUnit('length')}</p>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                                
-                                {results ? (
-                                    <div>
-                                        {drawReactionDiagram()}
-                                        {drawDiagram(results.shear, 'Shear Force', '#2563eb', 'force')}
-                                        {drawDiagram(results.moment, 'Bending Moment', '#dc2626', 'moment')}
-                                        {drawDiagram(results.deflection, 'Deflection', '#16a34a', 'deflection')}
-                                    </div>
-                                ) : (
-                                    <p className="text-gray-500 text-center py-8">Configure your beam and click "Solve Beam" to see results</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
+                mom.push(M);
+            }
+            return mom;
         };
 
-        ReactDOM.render(<BeamSolver />, document.getElementById('root'));
-    </script>
+        const calcSlopeAndDeflection = (momentDiagram) => {
+            const slp = [0]; for (let i = 1; i <= n; i++) slp.push(slp[i-1] + (momentDiagram[i] + momentDiagram[i-1]) / 2 * dx / EI);
+            const def = [0]; for (let i = 1; i <= n; i++) def.push(def[i-1] + (slp[i] + slp[i-1]) / 2 * dx);
+            return { slope: slp, deflection: def };
+        };
+
+        const getValueAtPosition = (arr, pos) => arr[Math.min(n, Math.max(0, Math.round(pos / dx)))];
+        const numSupports = sortedSupports.length, numFixed = sortedSupports.filter(s => s.type === 'fixed').length, numPin = sortedSupports.filter(s => s.type === 'pin').length;
+
+        if (numSupports === 1 && sortedSupports[0].type === 'pin') { setResults({ x, shear: x.map(() => 0), moment: x.map(() => 0), deflection: x.map(() => 0), reactions: [], error: "Unstable: single pin cannot resist rotation" }); return; }
+
+        if (numSupports === 1 && sortedSupports[0].type === 'fixed') { reactions[0].R = -totalLoad; reactions[0].M = -totalMomentAboutFirst; }
+        else if (numSupports === 2 && numPin === 2) {
+            const span = sortedSupports[1].position - sortedSupports[0].position;
+            let mAs1 = 0;
+            loads.forEach(ld => {
+                if (ld.type === 'point') mAs1 += ld.magnitude * (ld.position - sortedSupports[0].position);
+                else if (ld.type === 'distributed') { const len = ld.endPosition - ld.position; mAs1 += ld.magnitude * len * (ld.position + len/2 - sortedSupports[0].position); }
+                else if (ld.type === 'triangular') { const L = ld.endPosition - ld.position, res = (ld.magnitude + ld.endMagnitude) * L / 2; let cfa = L / 2; if (Math.abs(ld.magnitude + ld.endMagnitude) > 1e-10) cfa = L * (ld.magnitude + 2 * ld.endMagnitude) / (3 * (ld.magnitude + ld.endMagnitude)); mAs1 += res * (ld.position + cfa - sortedSupports[0].position); }
+                else if (ld.type === 'moment') mAs1 += ld.magnitude;
+            });
+            reactions[1].R = -mAs1 / span; reactions[0].R = -totalLoad - reactions[1].R;
+        }
+        else if (numSupports === 2 && numPin === 1 && numFixed === 1) {
+            const pinS = sortedSupports.find(s => s.type === 'pin'), fixS = sortedSupports.find(s => s.type === 'fixed');
+            const pinIdx = sortedSupports.indexOf(pinS), fixIdx = sortedSupports.indexOf(fixS), fixIdx_n = Math.round(fixS.position / dx);
+            let mAf = 0;
+            loads.forEach(ld => {
+                if (ld.type === 'point') mAf += ld.magnitude * (ld.position - fixS.position);
+                else if (ld.type === 'distributed') { const len = ld.endPosition - ld.position; mAf += ld.magnitude * len * (ld.position + len/2 - fixS.position); }
+                else if (ld.type === 'triangular') { const L = ld.endPosition - ld.position, res = (ld.magnitude + ld.endMagnitude) * L / 2; let cfa = L / 2; if (Math.abs(ld.magnitude + ld.endMagnitude) > 1e-10) cfa = L * (ld.magnitude + 2 * ld.endMagnitude) / (3 * (ld.magnitude + ld.endMagnitude)); mAf += res * (ld.position + cfa - fixS.position); }
+                else if (ld.type === 'moment') mAf += ld.magnitude;
+            });
+            const pR = [{ position: fixS.position, R: -totalLoad, M: -mAf }];
+            const pM = calcMomentDiagram(pR), pRes = calcSlopeAndDeflection(pM);
+            let so = pRes.slope[fixIdx_n]; for (let i = 0; i <= n; i++) pRes.slope[i] -= so;
+            pRes.deflection[0] = 0; for (let i = 1; i <= n; i++) pRes.deflection[i] = pRes.deflection[i-1] + (pRes.slope[i] + pRes.slope[i-1]) / 2 * dx;
+            let dfo = pRes.deflection[fixIdx_n]; for (let i = 0; i <= n; i++) pRes.deflection[i] -= dfo;
+            const dPl = getValueAtPosition(pRes.deflection, pinS.position);
+
+            const uR = [{ position: fixS.position, R: -1, M: -(pinS.position - fixS.position) }];
+            const uM = []; for (let i = 0; i <= n; i++) { const xi = x[i]; let M = 0; if (xi >= fixS.position) { M += uR[0].R * (xi - fixS.position); M -= uR[0].M; } if (xi >= pinS.position) M += xi - pinS.position; uM.push(M); }
+            const uRes = calcSlopeAndDeflection(uM);
+            so = uRes.slope[fixIdx_n]; for (let i = 0; i <= n; i++) uRes.slope[i] -= so;
+            uRes.deflection[0] = 0; for (let i = 1; i <= n; i++) uRes.deflection[i] = uRes.deflection[i-1] + (uRes.slope[i] + uRes.slope[i-1]) / 2 * dx;
+            dfo = uRes.deflection[fixIdx_n]; for (let i = 0; i <= n; i++) uRes.deflection[i] -= dfo;
+            const Rp = -dPl / getValueAtPosition(uRes.deflection, pinS.position);
+            reactions[pinIdx].R = Rp; reactions[fixIdx].R = -totalLoad - Rp;
+            let Mf = 0;
+            loads.forEach(ld => {
+                if (ld.type === 'point') Mf -= ld.magnitude * (ld.position - fixS.position);
+                else if (ld.type === 'distributed') { const len = ld.endPosition - ld.position; Mf -= ld.magnitude * len * (ld.position + len/2 - fixS.position); }
+                else if (ld.type === 'triangular') { const L = ld.endPosition - ld.position, res = (ld.magnitude + ld.endMagnitude) * L / 2; let cfa = L / 2; if (Math.abs(ld.magnitude + ld.endMagnitude) > 1e-10) cfa = L * (ld.magnitude + 2 * ld.endMagnitude) / (3 * (ld.magnitude + ld.endMagnitude)); Mf -= res * (ld.position + cfa - fixS.position); }
+                else if (ld.type === 'moment') Mf -= ld.magnitude;
+            });
+            Mf -= Rp * (pinS.position - fixS.position); reactions[fixIdx].M = Mf;
+        }
+        else if (numSupports === 2 && numFixed === 2) {
+            const lS = sortedSupports[0], rS = sortedSupports[1], span = rS.position - lS.position, lIdx = Math.round(lS.position / dx);
+            let mAl = 0;
+            loads.forEach(ld => {
+                if (ld.type === 'point') mAl += ld.magnitude * (ld.position - lS.position);
+                else if (ld.type === 'distributed') { const len = ld.endPosition - ld.position; mAl += ld.magnitude * len * (ld.position + len/2 - lS.position); }
+                else if (ld.type === 'triangular') { const L = ld.endPosition - ld.position, res = (ld.magnitude + ld.endMagnitude) * L / 2; let cfa = L / 2; if (Math.abs(ld.magnitude + ld.endMagnitude) > 1e-10) cfa = L * (ld.magnitude + 2 * ld.endMagnitude) / (3 * (ld.magnitude + ld.endMagnitude)); mAl += res * (ld.position + cfa - lS.position); }
+                else if (ld.type === 'moment') mAl += ld.magnitude;
+            });
+            const pR = [{ position: lS.position, R: -totalLoad, M: -mAl }];
+            const pM = calcMomentDiagram(pR), pRes = calcSlopeAndDeflection(pM);
+            let so = pRes.slope[lIdx]; for (let i = 0; i <= n; i++) pRes.slope[i] -= so;
+            pRes.deflection[0] = 0; for (let i = 1; i <= n; i++) pRes.deflection[i] = pRes.deflection[i-1] + (pRes.slope[i] + pRes.slope[i-1]) / 2 * dx;
+            let dfo = pRes.deflection[lIdx]; for (let i = 0; i <= n; i++) pRes.deflection[i] -= dfo;
+            const dRl = getValueAtPosition(pRes.deflection, rS.position), sRl = getValueAtPosition(pRes.slope, rS.position);
+
+            const ulM = []; for (let i = 0; i <= n; i++) { const xi = x[i]; let M = 0; if (xi >= lS.position) { M += (-1) * (xi - lS.position); M -= (-span); } if (xi >= rS.position) M += xi - rS.position; ulM.push(M); }
+            const ulRes = calcSlopeAndDeflection(ulM);
+            so = ulRes.slope[lIdx]; for (let i = 0; i <= n; i++) ulRes.slope[i] -= so;
+            ulRes.deflection[0] = 0; for (let i = 1; i <= n; i++) ulRes.deflection[i] = ulRes.deflection[i-1] + (ulRes.slope[i] + ulRes.slope[i-1]) / 2 * dx;
+            dfo = ulRes.deflection[lIdx]; for (let i = 0; i <= n; i++) ulRes.deflection[i] -= dfo;
+            const f11 = getValueAtPosition(ulRes.deflection, rS.position), f21 = getValueAtPosition(ulRes.slope, rS.position);
+
+            const umM = []; for (let i = 0; i <= n; i++) { const xi = x[i]; let M = 0; if (xi >= lS.position) M -= (-1); if (xi >= rS.position) M -= 1; umM.push(M); }
+            const umRes = calcSlopeAndDeflection(umM);
+            so = umRes.slope[lIdx]; for (let i = 0; i <= n; i++) umRes.slope[i] -= so;
+            umRes.deflection[0] = 0; for (let i = 1; i <= n; i++) umRes.deflection[i] = umRes.deflection[i-1] + (umRes.slope[i] + umRes.slope[i-1]) / 2 * dx;
+            dfo = umRes.deflection[lIdx]; for (let i = 0; i <= n; i++) umRes.deflection[i] -= dfo;
+            const f12 = getValueAtPosition(umRes.deflection, rS.position), f22 = getValueAtPosition(umRes.slope, rS.position);
+
+            const det = f11 * f22 - f12 * f21;
+            const Rr = (-dRl * f22 - f12 * (-sRl)) / det, Mr = (f11 * (-sRl) - (-dRl) * f21) / det;
+            reactions[1].R = Rr; reactions[1].M = Mr; reactions[0].R = -totalLoad - Rr; reactions[0].M = -mAl - Rr * span - Mr;
+        }
+
+        const shear = [], moment = calcMomentDiagram(reactions);
+        x.forEach((xi) => {
+            let V = 0;
+            reactions.forEach(r => { if (xi >= r.position) V += r.R; });
+            loads.forEach(ld => {
+                if (ld.type === 'point' && xi >= ld.position) V += ld.magnitude;
+                else if (ld.type === 'distributed') { if (xi >= ld.position && xi <= ld.endPosition) V += ld.magnitude * (xi - ld.position); else if (xi > ld.endPosition) V += ld.magnitude * (ld.endPosition - ld.position); }
+                else if (ld.type === 'triangular') { const a = ld.position, b = ld.endPosition, w1 = ld.magnitude, w2 = ld.endMagnitude, L = b - a; if (L > 0) { if (xi >= a && xi <= b) { const dl = xi - a; V += w1 * dl + (w2 - w1) * dl * dl / (2 * L); } else if (xi > b) V += (w1 + w2) * L / 2; } }
+            });
+            shear.push(V);
+        });
+
+        const { slope, deflection } = calcSlopeAndDeflection(moment);
+        const numS = sortedSupports.length;
+        if (numS >= 2) {
+            const idx1 = Math.round(sortedSupports[0].position / dx), idx2 = Math.round(sortedSupports[numS-1].position / dx);
+            if (sortedSupports[0].type === 'fixed') {
+                const sov = slope[idx1]; for (let i = 0; i <= n; i++) slope[i] -= sov;
+                deflection[0] = 0; for (let i = 1; i <= n; i++) deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+                const dov = deflection[idx1]; for (let i = 0; i <= n; i++) deflection[i] -= dov;
+            } else if (sortedSupports[numS-1].type === 'fixed') {
+                const sov = slope[idx2]; for (let i = 0; i <= n; i++) slope[i] -= sov;
+                deflection[0] = 0; for (let i = 1; i <= n; i++) deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+                const dov = deflection[idx2]; for (let i = 0; i <= n; i++) deflection[i] -= dov;
+            } else {
+                const d1 = deflection[idx1], d2 = deflection[idx2], sa = (d2 - d1) / (sortedSupports[numS-1].position - sortedSupports[0].position);
+                for (let i = 0; i <= n; i++) deflection[i] -= d1 + sa * (x[i] - sortedSupports[0].position);
+            }
+        } else if (numS === 1 && sortedSupports[0].type === 'fixed') {
+            const idx1 = Math.round(sortedSupports[0].position / dx);
+            const sov = slope[idx1]; for (let i = 0; i <= n; i++) slope[i] -= sov;
+            deflection[0] = 0; for (let i = 1; i <= n; i++) deflection[i] = deflection[i-1] + (slope[i] + slope[i-1]) / 2 * dx;
+            const dov = deflection[idx1]; for (let i = 0; i <= n; i++) deflection[i] -= dov;
+        }
+
+        const deflectionMm = deflection.map(d => d * 1000);
+        const maxDeflection = Math.max(...deflectionMm.map(Math.abs));
+        const maxDeflectionIdx = deflectionMm.findIndex(d => Math.abs(d) === maxDeflection);
+        setResults({ x, shear, moment, deflection: deflectionMm, reactions, maxDeflection, maxDeflectionPosition: x[maxDeflectionIdx] });
+    };
+
+    const drawBeamDiagram = () => {
+        const width = 500, height = 150, padding = 40, beamY = height / 2, beamWidth = width - 2 * padding, scale = beamWidth / beamLength;
+        return (
+            <svg width={width} height={height} className="border border-gray-300 bg-white">
+                <line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000" strokeWidth="4" />
+                {supports.map(s => { const sx = padding + s.position * scale; return s.type === 'pin' ? <g key={s.id}><polygon points={`${sx},${beamY} ${sx-10},${beamY+15} ${sx+10},${beamY+15}`} fill="none" stroke="#000" strokeWidth="2" /><line x1={sx-15} y1={beamY+18} x2={sx+15} y2={beamY+18} stroke="#000" strokeWidth="2" /></g> : s.type === 'fixed' ? <g key={s.id}><line x1={sx} y1={beamY-20} x2={sx} y2={beamY+20} stroke="#000" strokeWidth="4" /></g> : null; })}
+                {loads.map(ld => {
+                    const lx = padding + ld.position * scale;
+                    if (ld.type === 'point') { const as = ld.magnitude < 0 ? beamY - 40 : beamY + 40; return <g key={ld.id}><line x1={lx} y1={as} x2={lx} y2={beamY} stroke="#dc2626" strokeWidth="2" /><polygon points={ld.magnitude < 0 ? `${lx},${beamY} ${lx-6},${beamY-10} ${lx+6},${beamY-10}` : `${lx},${beamY} ${lx-6},${beamY+10} ${lx+6},${beamY+10}`} fill="#dc2626" /><text x={lx} y={ld.magnitude < 0 ? as - 5 : as + 15} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(ld.magnitude, 'force')).toFixed(1)} {getUnit('force')}</text></g>; }
+                    if (ld.type === 'distributed') { const x1 = lx, x2 = padding + ld.endPosition * scale, na = Math.max(3, Math.floor((x2 - x1) / 30)), sp = (x2 - x1) / na, as = ld.magnitude < 0 ? beamY - 30 : beamY + 30; return <g key={ld.id}><line x1={x1} y1={as} x2={x2} y2={as} stroke="#dc2626" strokeWidth="2" />{Array.from({ length: na + 1 }).map((_, i) => { const ax = x1 + i * sp; return <g key={i}><line x1={ax} y1={as} x2={ax} y2={beamY} stroke="#dc2626" strokeWidth="1.5" /><polygon points={ld.magnitude < 0 ? `${ax},${beamY} ${ax-4},${beamY-8} ${ax+4},${beamY-8}` : `${ax},${beamY} ${ax-4},${beamY+8} ${ax+4},${beamY+8}`} fill="#dc2626" /></g>; })}<text x={(x1 + x2) / 2} y={ld.magnitude < 0 ? as - 8 : as + 18} textAnchor="middle" fontSize="11" fill="#dc2626" fontWeight="bold">{Math.abs(toDisplay(ld.magnitude, 'distributed')).toFixed(1)} {getUnit('distributed')}</text></g>; }
+                    if (ld.type === 'moment') { const r = 15, pos = ld.magnitude > 0; return <g key={ld.id}><path d={pos ? `M ${lx+r} ${beamY} A ${r} ${r} 0 1 0 ${lx-r} ${beamY}` : `M ${lx-r} ${beamY} A ${r} ${r} 0 1 1 ${lx+r} ${beamY}`} fill="none" stroke="#9333ea" strokeWidth="2" />{pos ? <polygon points={`${lx-r},${beamY} ${lx-r+6},${beamY-6} ${lx-r+6},${beamY+6}`} fill="#9333ea" /> : <polygon points={`${lx+r},${beamY} ${lx+r-6},${beamY-6} ${lx+r-6},${beamY+6}`} fill="#9333ea" />}<text x={lx} y={beamY - 25} textAnchor="middle" fontSize="11" fill="#9333ea" fontWeight="bold">{Math.abs(toDisplay(ld.magnitude, 'moment')).toFixed(1)} {getUnit('moment')}</text></g>; }
+                    if (ld.type === 'triangular') { const x1 = lx, x2 = padding + ld.endPosition * scale, w1 = ld.magnitude, w2 = ld.endMagnitude, mW = Math.max(Math.abs(w1), Math.abs(w2)), hs = mW > 0 ? 30 / mW : 1, down = (w1 + w2) / 2 < 0, h1 = Math.abs(w1) * hs, h2 = Math.abs(w2) * hs, ty1 = down ? beamY - h1 : beamY + h1, ty2 = down ? beamY - h2 : beamY + h2, na = Math.max(3, Math.floor((x2 - x1) / 30)); return <g key={ld.id}><line x1={x1} y1={ty1} x2={x2} y2={ty2} stroke="#f97316" strokeWidth="2" /><line x1={x1} y1={ty1} x2={x1} y2={beamY} stroke="#f97316" strokeWidth="1" /><line x1={x2} y1={ty2} x2={x2} y2={beamY} stroke="#f97316" strokeWidth="1" />{Array.from({ length: na + 1 }).map((_, i) => { const ax = x1 + i * (x2 - x1) / na, t = i / na, wAtX = w1 + (w2 - w1) * t, hAtX = Math.abs(wAtX) * hs, as = down ? beamY - hAtX : beamY + hAtX; if (Math.abs(wAtX) < 0.01) return null; return <g key={i}><line x1={ax} y1={as} x2={ax} y2={beamY} stroke="#f97316" strokeWidth="1.5" /><polygon points={down ? `${ax},${beamY} ${ax-4},${beamY-8} ${ax+4},${beamY-8}` : `${ax},${beamY} ${ax-4},${beamY+8} ${ax+4},${beamY+8}`} fill="#f97316" /></g>; })}<text x={x1} y={down ? ty1 - 5 : ty1 + 15} textAnchor="middle" fontSize="10" fill="#f97316" fontWeight="bold">{Math.abs(toDisplay(w1, 'distributed')).toFixed(1)}</text><text x={x2} y={down ? ty2 - 5 : ty2 + 15} textAnchor="middle" fontSize="10" fill="#f97316" fontWeight="bold">{Math.abs(toDisplay(w2, 'distributed')).toFixed(1)}</text></g>; }
+                    return null;
+                })}
+                <text x={width / 2} y={height - 3} textAnchor="middle" fontSize="11" fill="#666">{toDisplay(beamLength, 'length').toFixed(1)} {getUnit('length')}</text>
+            </svg>
+        );
+    };
+
+    const drawDiagram = (data, title, color, unitType) => {
+        if (!results) return null;
+        const width = 500, height = 200, padding = 60, graphWidth = width - 2 * padding, graphHeight = height - 2 * padding;
+        const displayData = data.map(v => toDisplay(v, unitType)), unit = getUnit(unitType);
+        const maxAbsVal = Math.max(...displayData.map(Math.abs)), scaleY = maxAbsVal > 0 ? graphHeight / (2 * maxAbsVal) : 1;
+        const points = results.x.map((xVal, i) => `${padding + (xVal / beamLength) * graphWidth},${padding + graphHeight / 2 - displayData[i] * scaleY}`).join(' ');
+        return <div className="mb-6"><h3 className="font-semibold mb-2">{title} ({unit})</h3><svg width={width} height={height} className="border border-gray-300 bg-white"><line x1={padding} y1={padding + graphHeight / 2} x2={width - padding} y2={padding + graphHeight / 2} stroke="black" strokeWidth="1" /><polyline points={points} fill="none" stroke={color} strokeWidth="2" /><line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="black" strokeWidth="1" />{maxAbsVal > 0 && <g><text x={padding - 5} y={padding + 5} textAnchor="end" fontSize="10">{maxAbsVal.toFixed(2)}</text><text x={padding - 5} y={height - padding + 5} textAnchor="end" fontSize="10">{(-maxAbsVal).toFixed(2)}</text></g>}</svg></div>;
+    };
+
+    const drawReactionDiagram = () => {
+        if (!results?.reactions) return null;
+        const width = 500, height = 200, padding = 60, beamY = height / 2, beamWidth = width - 2 * padding, scale = beamWidth / beamLength;
+        return <div className="mb-4"><h3 className="font-semibold mb-2">Support Reactions</h3><svg width={width} height={height} className="border border-gray-300 bg-white"><line x1={padding} y1={beamY} x2={padding + beamWidth} y2={beamY} stroke="#000" strokeWidth="4" />{results.reactions.map((r, idx) => { const rx = padding + r.position * scale, arrowLength = Math.min(50, Math.max(20, Math.abs(r.R) * 3)), arrowStart = r.R > 0 ? beamY + 15 : beamY - 15, arrowEnd = r.R > 0 ? beamY + 15 + arrowLength : beamY - 15 - arrowLength; return r.type === 'pin' ? <g key={idx}><polygon points={`${rx},${beamY} ${rx-10},${beamY+15} ${rx+10},${beamY+15}`} fill="none" stroke="#000" strokeWidth="2" />{r.R !== 0 && <g><line x1={rx} y1={arrowStart} x2={rx} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" /><polygon points={r.R > 0 ? `${rx},${arrowStart} ${rx-6},${arrowStart+10} ${rx+6},${arrowStart+10}` : `${rx},${arrowStart} ${rx-6},${arrowStart-10} ${rx+6},${arrowStart-10}`} fill="#2563eb" /><text x={rx} y={arrowEnd + (r.R > 0 ? 15 : -5)} textAnchor="middle" fontSize="9" fill="#2563eb" fontWeight="bold">R={Math.abs(toDisplay(r.R, 'force')).toFixed(1)}</text></g>}</g> : r.type === 'fixed' ? <g key={idx}><line x1={rx} y1={beamY-20} x2={rx} y2={beamY+20} stroke="#000" strokeWidth="4" />{r.R !== 0 && <g><line x1={rx} y1={arrowStart} x2={rx} y2={arrowEnd} stroke="#2563eb" strokeWidth="3" /><polygon points={r.R > 0 ? `${rx},${arrowStart} ${rx-6},${arrowStart+10} ${rx+6},${arrowStart+10}` : `${rx},${arrowStart} ${rx-6},${arrowStart-10} ${rx+6},${arrowStart-10}`} fill="#2563eb" /><text x={rx-50} y={arrowEnd+5} textAnchor="start" fontSize="9" fill="#2563eb" fontWeight="bold">R={Math.abs(toDisplay(r.R, 'force')).toFixed(1)}</text></g>}{r.M !== 0 && <g><path d={`M ${rx} ${beamY-15} A 20 20 0 0 ${r.M > 0 ? 1 : 0} ${rx} ${beamY+15}`} fill="none" stroke="#dc2626" strokeWidth="2" /><text x={rx-40} y={beamY-30} textAnchor="start" fontSize="9" fill="#dc2626" fontWeight="bold">M={Math.abs(toDisplay(r.M, 'moment')).toFixed(1)}</text></g>}</g> : null; })}</svg></div>;
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-100 p-8">
+            <h1 className="text-3xl font-bold text-center mb-8">2D Beam Solver</h1>
+            <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                    <div className="bg-white p-4 rounded-lg shadow"><h2 className="text-xl font-semibold mb-4">Units</h2><select value={unitSystem} onChange={(e) => setUnitSystem(e.target.value)} className="w-full rounded border-gray-300 border p-2"><option value="metric">Metric (m, kN, kN·m)</option><option value="imperial">Imperial (ft, kip, kip·ft)</option></select></div>
+                    <div className="bg-white p-4 rounded-lg shadow"><h2 className="text-xl font-semibold mb-4">Beam Properties</h2><label className="block mb-3"><span className="text-gray-700">Beam Length ({getUnit('length')}):</span><input type="number" value={toDisplay(beamLength, 'length').toFixed(2)} onChange={(e) => setBeamLength(fromDisplay(parseFloat(e.target.value) || 1, 'length'))} className="mt-1 block w-full rounded border-gray-300 border p-2" min="0.1" step="0.1" /></label><label className="block mb-3"><span className="text-gray-700">Material:</span><select value={material} onChange={(e) => handleMaterialChange(e.target.value)} className="mt-1 block w-full rounded border-gray-300 border p-2 bg-white">{Object.entries(materials).map(([key, mat]) => <option key={key} value={key}>{mat.name}</option>)}</select></label><label className="block mb-3"><span className="text-gray-700">Elastic Modulus ({getUnit('modulus')}):</span><input type="number" value={toDisplay(elasticModulus, 'modulus').toFixed(0)} onChange={(e) => { setElasticModulus(fromDisplay(parseFloat(e.target.value) || 12, 'modulus')); setMaterial('custom'); }} className="mt-1 block w-full rounded border-gray-300 border p-2" min="1" step="1" /></label><label className="block mb-3"><span className="text-gray-700">Moment of Inertia ({getUnit('inertia')}):</span><input type="number" value={toDisplay(momentOfInertia, 'inertia').toExponential(3)} onChange={(e) => setMomentOfInertia(fromDisplay(parseFloat(e.target.value) || 0.0001, 'inertia'))} className="mt-1 block w-full rounded border-gray-300 border p-2" step="any" /></label></div>
+                    <div className="bg-white p-4 rounded-lg shadow"><h2 className="text-xl font-semibold mb-4">Supports</h2><div className="space-y-3"><div className="flex gap-2 items-center"><span className="text-gray-700 w-12">Left:</span><input type="number" value={toDisplay(leftSupportPosition, 'length').toFixed(2)} onChange={(e) => setLeftSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-2" step="0.1" disabled={leftSupportType === 'none'} /><span className="text-gray-500 text-sm">{getUnit('length')}</span><select value={leftSupportType} onChange={(e) => setLeftSupportType(e.target.value)} className="flex-1 rounded border-gray-300 border p-2"><option value="none">None</option><option value="pin">Pin</option><option value="fixed">Fixed</option></select></div><div className="flex gap-2 items-center"><span className="text-gray-700 w-12">Right:</span><input type="number" value={toDisplay(rightSupportPosition, 'length').toFixed(2)} onChange={(e) => setRightSupportPosition(fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-2" step="0.1" disabled={rightSupportType === 'none'} /><span className="text-gray-500 text-sm">{getUnit('length')}</span><select value={rightSupportType} onChange={(e) => setRightSupportType(e.target.value)} className="flex-1 rounded border-gray-300 border p-2"><option value="none">None</option><option value="pin">Pin</option><option value="fixed">Fixed</option></select></div></div></div>
+                    <div className="bg-white p-4 rounded-lg shadow"><div className="flex justify-between items-center mb-4"><h2 className="text-xl font-semibold">Loads</h2><button onClick={addLoad} className="flex items-center gap-1 bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"><Plus size={16} /> Add</button></div>{loads.map(ld => { const getLoadUnit = () => (ld.type === 'distributed' || ld.type === 'triangular') ? getUnit('distributed') : ld.type === 'moment' ? getUnit('moment') : getUnit('force'); const getLoadUnitType = () => (ld.type === 'distributed' || ld.type === 'triangular') ? 'distributed' : ld.type === 'moment' ? 'moment' : 'force'; return <div key={ld.id} className="flex gap-2 mb-2 items-center flex-wrap"><select value={ld.type} onChange={(e) => updateLoad(ld.id, 'type', e.target.value)} className="rounded border-gray-300 border p-1"><option value="point">Point Force</option><option value="distributed">Distributed (UDL)</option><option value="triangular">Triangular/Trapezoidal</option><option value="moment">Moment</option></select><input type="number" value={toDisplay(ld.position, 'length').toFixed(2)} onChange={(e) => updateLoad(ld.id, 'position', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" step="0.1" />{(ld.type === 'distributed' || ld.type === 'triangular') && <input type="number" value={toDisplay(ld.endPosition, 'length').toFixed(2)} onChange={(e) => updateLoad(ld.id, 'endPosition', fromDisplay(parseFloat(e.target.value) || 0, 'length'))} className="w-20 rounded border-gray-300 border p-1" step="0.1" />}<input type="number" value={toDisplay(ld.magnitude, getLoadUnitType()).toFixed(2)} onChange={(e) => updateLoad(ld.id, 'magnitude', fromDisplay(parseFloat(e.target.value) || 0, getLoadUnitType()))} className="w-20 rounded border-gray-300 border p-1" step="0.5" />{ld.type === 'triangular' && <input type="number" value={toDisplay(ld.endMagnitude, 'distributed').toFixed(2)} onChange={(e) => updateLoad(ld.id, 'endMagnitude', fromDisplay(parseFloat(e.target.value) || 0, 'distributed'))} className="w-20 rounded border-gray-300 border p-1" step="0.5" />}<span className="text-xs text-gray-500">{getLoadUnit()}</span><button onClick={() => removeLoad(ld.id)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button></div>; })}<p className="text-xs text-gray-400 mt-2">Point/Distributed: negative = downward. Moment: positive = counterclockwise</p></div>
+                    <button onClick={solveBeam} className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition">Solve Beam</button>
+                </div>
+                <div className="space-y-6">
+                    <div className="bg-white p-4 rounded-lg shadow"><h2 className="text-xl font-semibold mb-4">Beam Visualization</h2>{drawBeamDiagram()}</div>
+                    <div className="bg-white p-4 rounded-lg shadow"><h2 className="text-xl font-semibold mb-4">Results</h2>{results?.error ? <div className="text-red-500 font-semibold">{results.error}</div> : results ? <div>{drawReactionDiagram()}{drawDiagram(results.shear, 'Shear Force Diagram', '#2563eb', 'force')}{drawDiagram(results.moment, 'Bending Moment Diagram', '#dc2626', 'moment')}{drawDiagram(results.deflection, 'Deflection Diagram', '#16a34a', 'deflection')}<div className="mt-4 p-3 bg-gray-100 rounded"><p className="font-semibold">Maximum Deflection: {toDisplay(results.maxDeflection, 'deflection').toFixed(3)} {getUnit('deflection')}</p><p className="text-sm text-gray-600">at position {toDisplay(results.maxDeflectionPosition, 'length').toFixed(2)} {getUnit('length')}</p></div></div> : <p className="text-gray-500">Click "Solve Beam" to see results</p>}</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+ReactDOM.render(<BeamSolver />, document.getElementById('root'));
+</script>
 </body>
 </html>
